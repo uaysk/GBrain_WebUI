@@ -1,16 +1,18 @@
 # GBrain 3D Memory Map
 
-로컬 GBrain PostgreSQL·pgvector의 page를 읽기 전용 semantic map으로 보여주는 단일 화면 웹 앱입니다. 기본 3D map과 충돌 없는 전용 2D map을 전환할 수 있습니다. 브라우저는 Bun API만 호출하며 DB 자격 증명, 원본 embedding, 전체 본문은 받지 않습니다.
+[한국어 문서](README.ko.md) | **English**
 
-## 구성
+A focused, read-only web app that visualizes pages from a local GBrain PostgreSQL/pgvector database as a semantic memory map. It supports switching between a 3D map and a dedicated, collision-aware 2D map. The browser communicates only with the Bun API and never receives database credentials, raw embeddings, or full page content.
 
-- Vite + React + TypeScript + Tailwind CSS + shadcn/ui 방식의 UI 컴포넌트
-- Three.js + `react-force-graph-3d`
-- Bun API + PostgreSQL/pgvector
-- `umap-js` 고정 seed 3D projection
-- 실제 schema: `pages`, `content_chunks`, `links`, `tags`, `sources`
+## Stack
 
-API는 다음 세 개뿐입니다.
+- Vite, React, TypeScript, Tailwind CSS, and shadcn/ui-style components
+- Three.js and `react-force-graph-3d`
+- Bun API and PostgreSQL/pgvector
+- Deterministic 3D projection with `umap-js`
+- Verified schema tables: `pages`, `content_chunks`, `links`, `tags`, and `sources`
+
+The server exposes only three application endpoints:
 
 ```text
 GET  /api/status
@@ -18,13 +20,13 @@ GET  /api/graph
 POST /api/graph/rebuild
 ```
 
-## 설정
+## Configuration
 
 ```bash
 cp .env.example .env
 ```
 
-`.env`에 로컬 GBrain의 읽기 전용 계정을 입력합니다. `.env`는 Git에서 제외됩니다.
+Add the credentials for a read-only GBrain database role to `.env`. The file is excluded from Git.
 
 ```dotenv
 GBRAIN_DB_HOST=127.0.0.1
@@ -51,29 +53,31 @@ APP_AUTH_MAX_ATTEMPTS=5
 APP_AUTH_ATTEMPT_WINDOW_MINUTES=15
 ```
 
-`GBRAIN_ALLOWED_SOURCE_IDS`는 쉼표로 구분합니다. 서버는 schema 식별자를 검증하고, source allowlist와 `deleted_at IS NULL` 조건을 모든 snapshot 쿼리에 적용합니다.
+`GBRAIN_ALLOWED_SOURCE_IDS` is a comma-separated allowlist. The server validates the schema identifier and applies both the source allowlist and `deleted_at IS NULL` to every snapshot query.
 
-## 실행
+## Local development
 
 ```bash
 bun install
 bun run dev
 ```
 
-개발 UI는 `http://127.0.0.1:5173`, API는 `http://127.0.0.1:3000`입니다. production 실행:
+The development UI runs at `http://127.0.0.1:5173`, and the API runs at `http://127.0.0.1:3000`.
+
+For a production build:
 
 ```bash
 bun run build
 bun run start
 ```
 
-production에서는 Bun 서버가 `dist/`와 API를 같은 origin에서 제공합니다.
+In production, the Bun server serves both `dist/` and the API from the same origin.
 
-production 앱은 비밀번호 로그인으로 보호됩니다. 성공 시 Bun 서버가 서명된 HttpOnly 세션 쿠키를 발급하며, 공개 HTTPS에서는 `Secure`, 모든 환경에서 `SameSite=Strict`를 적용합니다. 비밀번호와 세션 서명 키는 브라우저나 image layer로 전달되지 않습니다. Vite 개발 서버는 loopback 개발 전용이며 인증 진입점을 검증하려면 production 방식으로 실행하십시오. 로그인 POST는 동일/설정 origin과 비신뢰 TLS 예외 페이지의 opaque `Origin: null`만 허용하며, 로그아웃과 graph rebuild는 계속 동일 origin만 허용합니다.
+The production app is protected by password authentication. After a successful login, the Bun server issues a signed HttpOnly session cookie with `SameSite=Strict`; `Secure` is also enabled when the public endpoint uses HTTPS. Neither the password nor the session signing key is sent to the browser or copied into an image layer. The Vite development server is intended only for loopback development, so run the production server when validating the authentication boundary. Login POST requests allow the configured same origin and the opaque `Origin: null` used by untrusted TLS exception pages. Logout and graph rebuild requests continue to require the same origin.
 
-## Docker Compose 실행
+## Docker Compose
 
-현재 저장소의 `.env`에는 이전 GBrain Dashboard에서 사용하던 전용 읽기 전용 PostgreSQL 계정 설정이 split 환경변수 형식으로 들어갑니다. `.env`는 build context에서 제외되고 Git에도 포함되지 않습니다.
+The local `.env` can contain the dedicated read-only PostgreSQL role used by the existing GBrain Dashboard, expressed as split environment variables. `.env` is excluded from both the Docker build context and Git.
 
 ```bash
 docker compose up --build -d
@@ -81,102 +85,104 @@ docker compose ps
 curl http://127.0.0.1:3100/healthz
 ```
 
-기본 container port는 3000이고 host에는 `127.0.0.1:3100`으로 게시합니다. 이 호스트에서는 3000과 3200을 기존 서비스가 사용하고 있어 충돌을 피한 값입니다. 포트를 바꾸려면 `.env`의 `APP_PUBLISHED_PORT`만 변경합니다.
+The container listens on port 3000 and is published to `127.0.0.1:3100` by default. Ports 3000 and 3200 are already used by other services on the original host, so 3100 avoids a collision. Change only `APP_PUBLISHED_PORT` in `.env` to publish a different host port.
 
-종료와 로그 확인:
+To inspect logs or stop the app:
 
 ```bash
 docker compose logs -f web
 docker compose down
 ```
 
-Compose 서비스는 non-root user, read-only root filesystem, capability drop, `no-new-privileges`, 제한된 `/tmp` tmpfs로 실행됩니다. DB 자격 증명은 runtime environment로만 주입되며 image layer에는 복사되지 않습니다.
+The Compose service runs as a non-root user with a read-only root filesystem, dropped capabilities, `no-new-privileges`, and a restricted `/tmp` tmpfs. Database credentials are injected only through the runtime environment and are never copied into an image layer.
 
-## 데이터 처리
+## Data pipeline
 
-1. `brain-map` 태그가 붙은 탐색용 메타 인덱스 page를 page·embedding·link query 단계에서 제외합니다. 원본 GBrain page는 변경하지 않습니다.
-2. 각 chunk embedding에 PostgreSQL `l2_normalize()`를 적용합니다.
-3. `avg()`로 page embedding을 만듭니다.
-4. 같은 page vector CTE에서 pgvector cosine distance(`<=>`)로 page별 top-2 semantic edge를 생성합니다.
-5. semantic edge와 explicit edge를 하나의 가중 undirected graph로 합칩니다. 양방향 semantic edge는 한 edge로 합치고 self-link는 community 계산에서 제외합니다.
-6. Graphology 기반 Leiden을 고정 seed로 실행해 community를 만들고, community를 node color와 halo에 사용합니다.
-7. page embedding은 별도의 고정 seed UMAP으로 3차원 projection해 표시 좌표를 만듭니다.
-8. embedding이 없는 page도 explicit relation이 있으면 Leiden community에 포함하지만, 좌표는 기존처럼 외곽 outline-only 영역에 둡니다.
+1. Pages tagged `brain-map`, which act as navigation/meta-index pages, are excluded from the page, embedding, and link queries. The source GBrain pages are not modified.
+2. PostgreSQL `l2_normalize()` is applied to each chunk embedding.
+3. The normalized chunk embeddings are averaged into one page embedding with `avg()`.
+4. The same page-vector CTE generates each page's top two semantic edges using pgvector cosine distance (`<=>`).
+5. Semantic and explicit edges are merged into one weighted, undirected graph. Reciprocal semantic edges are collapsed into one edge, and self-links are excluded from community detection.
+6. Seeded Graphology Leiden produces communities used for node colors and halos.
+7. A separate seeded UMAP projects page embeddings into three-dimensional display coordinates.
+8. A page without an embedding still participates in its Leiden community when it has an explicit relation, but remains in the outer outline-only region.
 
-stable node ID는 `source_id::slug`입니다. explicit edge는 원래 `link_type`, `link_source`, 방향을 보존하지만 화면의 선은 모두 직선이며 화살표를 사용하지 않습니다. 방향은 hover tooltip의 `source → target`으로 확인합니다. 같은 node pair의 여러 관계는 가장 높은 우선순위 선 하나로 합치고 tooltip에 원래 관계를 모두 표시합니다.
+The stable node ID is `source_id::slug`. Explicit edges preserve their original `link_type`, `link_source`, and direction, while all rendered lines remain straight and use no arrows. Direction is available in the hover tooltip as `source → target`. When multiple relations connect the same node pair, the highest-priority line is rendered and the tooltip lists all original relations.
 
-상단 `Pages`와 `Chunks` 수치는 실제 DB 전체 수가 아니라 `brain-map` 메타 인덱스를 제외한 표시 대상 snapshot 기준입니다.
+The header's `Pages` and `Chunks` values describe the visible snapshot after excluding `brain-map` meta-index pages, not the unfiltered database totals.
 
-## 3D / 2D map 전환
+## 3D and 2D map transition
 
-상단 `2D map` 버튼은 단순히 기존 좌표의 Z축을 0으로 만들지 않습니다. 그렇게 하면 깊이로 분리됐던 node와 community가 평면에서 겹칠 수 있으므로 별도의 deterministic 2D layout을 계산합니다.
+The `2D map` button does more than set the existing Z coordinates to zero. Flattening the 3D coordinates directly would make nodes and communities that were separated by depth overlap, so the app computes a separate deterministic 2D layout.
 
-- 각 Leiden community 내부에서 billboard 시각 반지름의 합과 0.8 간격을 기준으로 2D node collision을 해소합니다.
-- 각 community의 바깥 halo를 감싸는 원을 계산하고, 원 사이에 최소 14의 간격을 두는 별도 community packing을 수행합니다.
-- 원래 3D 좌표의 등각 투영을 2D 초기 위치로 사용하므로 community의 대략적인 상대 방향을 유지합니다.
-- unclassified와 embedding 없는 outline-only node는 packed community 전체 바깥의 충돌 없는 ring에 배치합니다.
-- 동일한 stable node ID의 3D·2D 좌표를 1.05초 cubic ease-in-out으로 보간합니다. 전환 중 edge endpoint, halo 중심·반경, label anchor도 매 frame 함께 갱신됩니다.
-- 전환 중에는 ForceGraph 전체 `refresh()`를 호출하지 않습니다. Node는 shape·color·size attribute를 가진 단일 point batch, semantic/explicit edge는 각각 단일 line batch, community halo는 inner/outer 두 개의 저폴리 merged mesh로 잠시 합쳐 draw call을 줄입니다. 전환 종료 후 원래 billboard, 굵은 relation line, halo hover object를 즉시 복원합니다.
-- `nodeThreeObject`와 `linkThreeObject` accessor는 mode/resize render 사이에서 동일한 함수 identity를 유지합니다. 따라서 3D↔2D 전환만으로 ForceGraph가 기존 node/edge object를 교체하지 않으며, morph 시작점은 flatness 추정값이 아니라 현재 표시 좌표에서 직접 읽습니다.
-- Community label 크기는 최초 한 번만 측정하고 이후 `translate3d()` compositor transform으로 이동합니다. 긴 browser stall은 제외한 morph FPS와 batch 적용 여부를 `data-morph-*` 진단 속성에 남깁니다.
-- 2D mode에서는 camera를 평면 정면으로 이동하고 회전만 잠급니다. 확대와 이동, node/edge hover, 선택, community focus는 그대로 동작합니다.
-- `3D map` 버튼으로 돌아오면 서버가 제공한 원래 UMAP·Leiden 3D 좌표와 등각 camera로 같은 방식으로 복원됩니다.
+- Within each Leiden community, the layout resolves 2D collisions using the sum of billboard radii plus 0.8 units of spacing.
+- It computes a circle that encloses each community halo, then packs the communities with at least 14 units between their circles.
+- An isometric projection of the original 3D coordinates seeds the 2D positions, preserving the communities' approximate relative directions.
+- Unclassified and embedding-free outline-only nodes are placed on collision-free rings outside the packed communities.
+- Coordinates with the same stable node ID are interpolated over 1.05 seconds with cubic ease-in-out. Edge endpoints, halo centers and radii, and label anchors are updated on every animation frame.
+- The transition does not call a full ForceGraph `refresh()`. Nodes temporarily become a single point batch with shape, color, and size attributes; semantic and explicit edges each become one line batch; and community halos become two low-poly merged meshes for the inner and outer layers. The original billboards, weighted relation lines, and interactive halo objects are restored immediately after the transition.
+- `nodeThreeObject` and `linkThreeObject` accessors retain stable function identities across mode and resize renders. Switching modes therefore does not make ForceGraph replace existing node or edge objects, and every morph starts from the currently displayed coordinates instead of an estimated flatness state.
+- Community label dimensions are measured once and then moved with compositor-backed `translate3d()` transforms. Diagnostic `data-morph-*` attributes report morph FPS after excluding long browser stalls and indicate whether batching is active.
+- In 2D mode, the camera moves to a front-facing planar view and only rotation is locked. Zoom, pan, node and edge hover, selection, and community focus remain available.
+- Switching back with the `3D map` button restores the original server-provided UMAP/Leiden 3D coordinates and the isometric camera using the same morph pipeline.
 
-운영 graph를 대상으로 2D 최종 좌표의 node 표면 간격과 community halo 간격을 smoke test에서 전수 검사합니다. 2D layout은 브라우저 표현용이며 API 응답이나 GBrain DB에 좌표를 쓰지 않습니다.
+The smoke test exhaustively checks node-surface spacing and community-halo spacing in the final 2D layout against the production graph. The 2D layout exists only in the browser and never writes coordinates to the API response or GBrain database.
 
-관계선은 패턴과 굵기로 구분합니다.
+Relation lines are distinguished by pattern and width:
 
-| 관계 | 패턴 | 굵기 |
+| Relation | Pattern | Width |
 | --- | --- | ---: |
-| Temporal evolution | 긴 파선 | 3.0px |
-| Structure / dependency | 실선 | 2.6px |
-| Provenance / evidence | 짧은 파선 | 2.0px |
-| Association | 실선 | 1.6px |
-| Mention / reference | 점선 | 1.1px |
-| Semantic similarity | 실선 | 0.6px |
+| Temporal evolution | Long dash | 3.0px |
+| Structure / dependency | Solid | 2.6px |
+| Provenance / evidence | Short dash | 2.0px |
+| Association | Solid | 1.6px |
+| Mention / reference | Dotted | 1.1px |
+| Semantic similarity | Solid | 0.6px |
 
-Leiden 입력에서 cosine similarity가 `LEIDEN_MIN_SEMANTIC_SIMILARITY`보다 낮은 semantic edge는 제외합니다. 유지된 semantic edge는 threshold에서 0.25, similarity 1에서 1.0이 되도록 선형 변환합니다. Explicit edge weight는 mention 0.35, association 0.9, hierarchy 1.4, provenance 1.25, temporal 1.1이며 같은 node pair의 증거는 합칩니다. 실제 DB matrix에서 기본 `resolution=0.5`, threshold 0.65는 seed 간 partition 일치도 99% 이상과 과도하지 않은 community 크기를 보였습니다.
+Semantic edges below `LEIDEN_MIN_SEMANTIC_SIMILARITY` are excluded from Leiden input. Retained semantic edges are linearly scaled from a weight of 0.25 at the threshold to 1.0 at a similarity of 1. Explicit weights are 0.35 for mention, 0.9 for association, 1.4 for hierarchy, 1.25 for provenance, and 1.1 for temporal relations; evidence between the same node pair is combined. On the real database matrix, the defaults of `resolution=0.5` and a 0.65 threshold produced more than 99% partition agreement across seeds without creating excessively large communities.
 
-관계가 하나도 남지 않은 page만 `unclassified`로 표시합니다. Tooltip의 `internal-edge share`는 해당 node의 전체 Leiden 입력 edge weight 중 같은 community로 연결된 weight 비율이며 Leiden membership probability는 아닙니다. Community 내부 3D UMAP 상대 좌표는 유지하면서 community centroid 간격과 node 최소 간격을 완화합니다. 각 community의 3D bounding volume에는 낮은 강도의 halo를 표시합니다. `Labels`를 켜면 개별 node 제목 대신 community당 하나의 label을 바깥 halo의 화면상 정중앙 최상단에 고정합니다. Label에는 `Leiden NN`과 node 수를 제외한 community 제목만 표시하며 `No retained relation` label은 숨깁니다. 기본 글자와 검정 배경은 낮은 opacity이고, pointer가 해당 3D halo 안에 들어오면 범위 변경 없이 halo가 밝아지며 그 group label은 완전 불투명 흰색으로 바뀝니다. Hover community의 모든 node와 explicit/semantic edge로 직접 연결된 1-hop node는 동일한 opacity와 1.1배 scale로 강조하고, 나머지 node·halo·label은 흐리게 표시합니다. Camera 이동 중 위치 갱신은 frame당 한 번으로 제한하고 정수 pixel에 맞춰 글자 떨림을 방지합니다.
+Only pages with no retained relation are shown as `unclassified`. The tooltip's `internal-edge share` is the proportion of a node's total Leiden input edge weight that connects to nodes in the same community; it is not a Leiden membership probability. The layout preserves each community's internal 3D UMAP coordinates while relaxing centroid spacing and minimum node spacing. A low-intensity halo marks each community's 3D bounding volume.
 
-노드는 3D solid mesh 대신 `THREE.Sprite` billboard로 렌더링합니다. 따라서 카메라를 회전해도 2D 도형의 정면이 항상 카메라를 향합니다.
+When `Labels` is enabled, one community label appears at the screen-space top-center of the outer halo instead of showing every node title. Labels contain only the community title, without `Leiden NN` or node counts, and the `No retained relation` label is hidden. Text and black backgrounds have low opacity by default. Pointing inside a halo brightens it without changing its bounds and makes that group's label fully opaque and white. All nodes in the hovered community and directly connected one-hop nodes are emphasized with the same opacity and a 1.1× scale; unrelated nodes, halos, and labels are dimmed. Label position updates are limited to once per frame and snapped to integer pixels to prevent jitter while moving the camera.
+
+Nodes use `THREE.Sprite` billboards instead of solid 3D meshes, so each 2D shape always faces the camera.
 
 | Page type | Billboard shape |
 | --- | --- |
-| `concept` | 원 |
-| `project`, `project_note` | 사각형 |
-| `note`, `analysis`, `guide` | 마름모 |
-| `incident`, `incident-followup` | 삼각형 |
-| `project-log`, `ops-snapshot`, `infrastructure-snapshot` | 육각형 |
-| `extract_receipt` | 팔각형 |
-| 알 수 없는 type | 오각형 |
+| `concept` | Circle |
+| `project`, `project_note` | Square |
+| `note`, `analysis`, `guide` | Diamond |
+| `incident`, `incident-followup` | Triangle |
+| `project-log`, `ops-snapshot`, `infrastructure-snapshot` | Hexagon |
+| `extract_receipt` | Octagon |
+| Unknown type | Pentagon |
 
-도형은 의미 그룹 색상을 채우고 얇은 검정 테두리를 사용합니다. embedding이 없는 node는 채움 없는 점선 outline으로 표시합니다. 선택 node는 색을 유지하면서 흰색 outline과 1.12배 확대를 적용합니다. 기본 node 반지름 배율은 0.675로 이전 billboard의 정확히 절반입니다. layout은 각 node의 시각 반지름 합에 0.8의 간격을 더해 collision relaxation을 수행합니다. `No retained relation` node는 amber `#E8A838`로 표시하고, embedding 유무와 무관하게 중심에서 반경 약 68–76의 근접 ring에 균일하게 배치한 뒤 전체 node collision을 다시 완화합니다. 서로 다른 깊이의 billboard는 카메라 투영 방향에 따라 화면상 겹쳐 보일 수 있습니다.
+Each shape uses its semantic-group color with a thin black border. Nodes without embeddings use an unfilled dashed outline. A selected node keeps its color and receives a white outline and 1.12× scale. The default node-radius multiplier is 0.675, exactly half the earlier billboard size. Collision relaxation uses the sum of each pair's visual radii plus 0.8 units. `No retained relation` nodes use amber `#E8A838`; regardless of embedding coverage, they are distributed evenly on nearby rings with radii of roughly 68–76 before the final all-node collision pass. Billboards at different depths can still overlap in screen space depending on the camera projection.
 
-## 읽기 전용과 외부 노출
+## Read-only access and external exposure
 
-앱은 snapshot 생성 시 `SET TRANSACTION READ ONLY`를 실행합니다. 운영 계정에도 대상 테이블의 SELECT만 부여하고 INSERT/UPDATE/DELETE는 부여하지 마십시오.
+Snapshot generation begins with `SET TRANSACTION READ ONLY`. The production database role should receive only `SELECT` on the required tables and no `INSERT`, `UPDATE`, or `DELETE` privileges.
 
-기본 `APP_HOST=127.0.0.1`은 의도된 설정입니다. 외부에 노출할 때 Bun을 직접 인터넷에 바인딩하지 말고, 같은 호스트의 리버스 프록시를 사용하십시오. 앱의 비밀번호 인증은 기본 방어선이며 리버스 프록시에서도 TLS를 반드시 적용하십시오. 더 강한 접근 통제가 필요하면 프록시 OIDC 또는 VPN을 함께 적용할 수 있습니다. graph snapshot 자체가 개인 메모리 메타데이터일 수 있으므로 `/api/status`, `/api/graph`, `/api/graph/rebuild`는 모두 로그인 세션이 필요합니다. 공개 `/healthz`는 상태 본문이나 DB 정보를 반환하지 않고 `ok`만 반환합니다.
+The default `APP_HOST=127.0.0.1` is intentional. Do not bind Bun directly to the public internet; place a reverse proxy on the same host in front of it. Password authentication is the app's baseline defense, and the reverse proxy must also provide TLS. Add proxy-level OIDC or a VPN when stronger access control is required. Because the graph snapshot itself can contain private memory metadata, `/api/status`, `/api/graph`, and `/api/graph/rebuild` all require an authenticated session. The public `/healthz` endpoint returns only `ok`, without status details or database information.
 
-Caddy 예시:
+Caddy example:
 
 ```caddyfile
 memory.example.com {
   encode zstd gzip
-  # 필요하면 forward_auth 또는 조직 OIDC를 추가
+  # Add forward_auth or your organization's OIDC integration if needed.
   reverse_proxy 127.0.0.1:3100
 }
 ```
 
-Nginx 예시:
+Nginx example:
 
 ```nginx
 server {
   listen 443 ssl http2;
   server_name memory.example.com;
 
-  # ssl_certificate / ssl_certificate_key 구성; 필요하면 auth_request 또는 VPN 추가
+  # Configure ssl_certificate and ssl_certificate_key; add auth_request or a VPN if needed.
   location / {
     proxy_pass http://127.0.0.1:3100;
     proxy_http_version 1.1;
@@ -187,9 +193,9 @@ server {
 }
 ```
 
-외부 origin을 사용하면 `.env`에 `APP_PUBLIC_ORIGIN=https://memory.example.com`을 지정하십시오. 서버는 POST rebuild의 Origin을 검사하고 기본 15초 rate limit을 적용합니다. CSP, frame 차단, MIME sniffing 차단, referrer/permissions 정책과 HTTPS 전달 시 HSTS도 응답에 추가합니다.
+When using an external origin, set `APP_PUBLIC_ORIGIN=https://memory.example.com` in `.env`. The server validates the origin of rebuild POST requests and applies a 15-second rate limit by default. Responses also include a content security policy, frame denial, MIME sniffing protection, referrer and permissions policies, and HSTS when HTTPS forwarding is detected.
 
-## 테스트
+## Tests
 
 ```bash
 bun test tests/community.test.ts tests/layout.test.ts tests/style.test.ts
@@ -197,21 +203,21 @@ APP_AUTH_PASSWORD='<configured-password>' SMOKE_BASE_URL=http://127.0.0.1:3000 b
 APP_AUTH_PASSWORD='<configured-password>' PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 bunx playwright test
 ```
 
-실DB smoke test는 node/page 수, embedded/unembedded 분리, stable ID, semantic top-2, explicit edge 보존과 API의 민감 필드 미포함을 검사합니다. Playwright는 1440×1000, 1920×1200, 2560×1600에서 console error, failed request, 가로·세로 overflow를 검사하며 스크린샷과 분리한 순수 morph의 FPS를 `screenshots/morph-performance.json`에 기록합니다. 또한 React 좌표가 아니라 실제 Three.js scene node의 Z 깊이, node 좌표 오차, halo 중심·포함 범위 오차와 camera 축을 3D→2D→3D 전체 구간에서 검사합니다.
+The real-database smoke test verifies node/page counts, embedded and unembedded separation, stable IDs, semantic top-two edges, explicit-edge preservation, and the absence of sensitive fields in API responses. Playwright checks console errors, failed requests, and horizontal or vertical overflow at 1440×1000, 1920×1200, and 2560×1600, then writes screenshots and isolated morph FPS results to `screenshots/morph-performance.json`. It also validates the actual Three.js scene rather than only React coordinates: scene-node Z depth, node coordinate error, halo center and containment errors, and camera axes across the complete 3D→2D→3D cycle.
 
-검토한 결과 이미지는 다음과 같습니다.
+Locally reviewed screenshots:
 
 - [1440×1000](screenshots/gbrain-memory-map-1440x1000.png)
 - [1920×1200](screenshots/gbrain-memory-map-1920x1200.png)
 - [2560×1600](screenshots/gbrain-memory-map-2560x1600.png)
 - [3D→2D morph](screenshots/gbrain-memory-map-3d-to-2d-morph.png)
-- [2D final](screenshots/gbrain-memory-map-2d.png)
+- [Final 2D map](screenshots/gbrain-memory-map-2d.png)
 
-## 알려진 제한
+## Known limitations
 
-- 좌표와 community는 프로세스 메모리에 cache되며 재시작 후 첫 요청에서 다시 계산됩니다.
-- 고정 seed를 사용하지만 `umap-js` 버전 변경 시 layout이 달라질 수 있습니다.
-- Leiden community label은 community의 우세 tag/type을 사용한 짧은 설명입니다.
-- Leiden 결과는 semantic threshold, relation weight, resolution과 graph corpus 변경에 따라 달라질 수 있습니다.
-- WebGL이 없는 브라우저를 위한 2D 대체 화면은 이번 단일 3D MVP 범위에 포함하지 않습니다.
-- 단일 공유 비밀번호 방식이며 사용자별 계정, 권한 분리, 비밀번호 재설정 UI는 제공하지 않습니다.
+- Coordinates and communities are cached in process memory and recomputed on the first request after a restart.
+- The layout uses fixed seeds, but changing the `umap-js` version can still change the result.
+- Leiden community labels are short descriptions derived from the community's dominant tags and page types.
+- Leiden results can change when the semantic threshold, relation weights, resolution, or graph corpus changes.
+- A fallback for browsers without WebGL is outside the scope of this focused map MVP.
+- Authentication uses one shared password; per-user accounts, role separation, and a password-reset UI are not provided.
