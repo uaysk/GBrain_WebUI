@@ -2,6 +2,8 @@
 
 [한국어 문서](README.ko.md) | **English**
 
+![GBrain 3D Memory Map showing the live semantic graph, community halos, and relation lines](screenshots/gbrain-memory-map-1440x1000.png)
+
 A focused, read-only web app that visualizes pages from a local GBrain PostgreSQL/pgvector database as a semantic memory map. It supports switching between a 3D map and a dedicated, collision-aware 2D map. The browser communicates only with the Bun API and never receives database credentials, raw embeddings, or full page content.
 
 ## Stack
