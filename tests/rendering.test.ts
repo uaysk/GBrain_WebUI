@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { billboardVertices } from "../src/graph/node-billboard";
 import { COMMUNITY_LABEL_STYLE, communityLabelTitle, connectedNodeIdsForGroup, pixelAlignedLabelOrigin } from "../src/graph/community-label";
 import { edgeSegmentPositions } from "../src/graph/rendering";
+import { haloTransformForNodes, nodesInCommunityHalo } from "../src/graph/halo";
 import { NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphEdge, type NodeShape } from "../src/types";
 
 describe("billboard node shapes", () => {
@@ -41,6 +42,29 @@ describe("community labels", () => {
       "one",
     );
     expect([...focused].sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("community halo geometry", () => {
+  test("uses only embedded nodes in the selected community as halo members", () => {
+    const nodes = [
+      { id: "included", groupId: "group-1", hasEmbedding: true },
+      { id: "outline-only", groupId: "group-1", hasEmbedding: false },
+      { id: "other", groupId: "group-2", hasEmbedding: true },
+    ];
+
+    expect(nodesInCommunityHalo(nodes, "group-1").map((node) => node.id)).toEqual(["included"]);
+  });
+
+  test("tracks member bounds and flattens only the depth radius in 2D", () => {
+    const members = [{ x: -4, y: -2, z: -6 }, { x: 8, y: 6, z: 10 }];
+    const spatial = haloTransformForNodes(members, 0)!;
+    const flat = haloTransformForNodes(members, 1)!;
+    expect(spatial.center).toEqual([2, 2, 2]);
+    expect(flat.center).toEqual(spatial.center);
+    expect(flat.radii[0]).toBe(spatial.radii[0]);
+    expect(flat.radii[1]).toBe(spatial.radii[1]);
+    expect(flat.radii[2]).toBe(1.35);
   });
 });
 

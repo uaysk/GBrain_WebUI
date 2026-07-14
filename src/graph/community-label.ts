@@ -15,21 +15,4 @@ export function pixelAlignedLabelOrigin(anchor: { x: number; y: number }, size: 
   return { left: Math.round(anchor.x - size.width / 2), top: Math.round(anchor.y - size.height) };
 }
 
-type FocusEndpoint = string | { id: string };
-
-export function connectedNodeIdsForGroup(
-  nodes: Array<{ id: string; groupId: string }>,
-  edges: Array<{ source: FocusEndpoint; target: FocusEndpoint }>,
-  groupId: string,
-): Set<string> {
-  const endpoint = (value: FocusEndpoint) => typeof value === "string" ? value : value.id;
-  const members = new Set(nodes.filter((node) => node.groupId === groupId).map((node) => node.id));
-  const focused = new Set(members);
-  for (const edge of edges) {
-    const source = endpoint(edge.source);
-    const target = endpoint(edge.target);
-    if (members.has(source)) focused.add(target);
-    if (members.has(target)) focused.add(source);
-  }
-  return focused;
-}
+export { connectedNodeIdsForGroup } from "./graph-layers";

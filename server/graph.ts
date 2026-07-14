@@ -1,14 +1,17 @@
 import type { Sql } from "postgres";
-import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphCounts, type GraphEdge, type GraphNode, type GraphResponse, type SemanticGroup } from "../src/types";
+import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphCounts, type GraphEdge, type GraphNode, type GraphResponse, type NodeDetailResponse, type SemanticGroup } from "../src/types";
 import { detectLeidenCommunities } from "./community";
 import type { Config } from "./config";
 import { parseVector, placeUnclassifiedNearGraph, projectUmap, relaxNodeCollisions, separateSemanticGroups } from "./layout";
 import { assignCurvatures, familyForType, GROUP_COLORS, RELATION_STYLE, shapeForType } from "./style";
+import { createCommunityNames } from "./community-labeling";
 
 type PageRow = { id: number; source_id: string; slug: string; type: string; title: string; source_name: string; chunk_count: number; tags: string[] | null };
 type VectorRow = { id: number; embedding_text: string };
 type LinkRow = { id: number; from_page_id: number; to_page_id: number; link_type: string; link_source: string | null };
 type SemanticRow = { from_page_id: number; to_page_id: number; similarity: number };
+type NodeDetailRow = { compiled_truth: string | null; updated_at: Date | string | null };
+const MAX_NODE_CONTENT_CHARS = 64_000;
 
 export class GraphService {
   private snapshot: GraphResponse | null = null;
@@ -24,6 +27,29 @@ export class GraphService {
 
   async getGraph(): Promise<GraphResponse> {
     return this.snapshot ?? this.rebuild();
+  }
+
+  async getNodeDetail(id: string): Promise<NodeDetailResponse | null> {
+    const node = (await this.getGraph()).nodes.find((candidate) => candidate.id === id);
+    if (!node) return null;
+    const rows = await this.sql.begin(async (tx) => {
+      await tx`SET TRANSACTION READ ONLY`;
+      return tx.unsafe<NodeDetailRow[]>(`
+        SELECT compiled_truth, updated_at
+        FROM "${this.config.db.schema}".pages
+        WHERE id = $1 AND source_id = $2 AND source_id = ANY($3::text[]) AND deleted_at IS NULL
+        LIMIT 1`, [node.dbId, node.sourceId, this.config.allowedSourceIds]);
+    });
+    const row = rows[0];
+    if (!row) return null;
+    const content = row.compiled_truth ?? "";
+    const updatedAt = row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at;
+    return {
+      id,
+      content: content.slice(0, MAX_NODE_CONTENT_CHARS),
+      contentTruncated: content.length > MAX_NODE_CONTENT_CHARS,
+      updatedAt,
+    };
   }
 
   async rebuild(): Promise<GraphResponse> {
@@ -139,14 +165,15 @@ export class GraphService {
     const layoutRadii = embeddedPages.map((page) => NODE_RADIUS_SCALE * nodeSizeByPage.get(page.id)!);
     const coords = relaxNodeCollisions(separatedCoords, layoutRadii, 28, NODE_COLLISION_GAP);
     const groupByPage = new Map(data.pages.map((page) => [page.id, community.labels[stableByDbId.get(page.id)!] ?? -1]));
-    const groupMeta: SemanticGroup[] = Array.from({ length: community.communityCount }, (_, index) => {
-      const members = data.pages.filter((p) => groupByPage.get(p.id) === index);
-      const signals = members.flatMap((p) => [...(p.tags ?? []), p.type]).filter(Boolean);
-      const counts = new Map<string, number>();
-      signals.forEach((signal) => counts.set(signal, (counts.get(signal) ?? 0) + 1));
-      const labelSignal = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "memory";
-      return { id: `group-${index + 1}`, label: `Leiden ${String(index + 1).padStart(2, "0")} · ${labelSignal}`, color: GROUP_COLORS[index % GROUP_COLORS.length]!, count: members.length, kind: "community" as const };
-    });
+    const membersByGroup = Array.from({ length: community.communityCount }, (_, index) => data.pages.filter((page) => groupByPage.get(page.id) === index));
+    const communityNames = createCommunityNames(membersByGroup);
+    const groupMeta: SemanticGroup[] = membersByGroup.map((members, index) => ({
+      id: `group-${index + 1}`,
+      label: `Leiden ${String(index + 1).padStart(2, "0")} · ${communityNames[index]}`,
+      color: GROUP_COLORS[index % GROUP_COLORS.length]!,
+      count: members.length,
+      kind: "community" as const,
+    }));
     const unclassifiedGroup: SemanticGroup = { id: "unclassified", label: "No retained relation", color: UNCLASSIFIED_NODE_COLOR, count: community.isolatedCount, kind: "unclassified" };
     const semanticGroups = community.isolatedCount ? [...groupMeta, unclassifiedGroup] : groupMeta;
     const coordinateByPage = new Map(embeddedPages.map((p, i) => [p.id, coords[i]! ]));

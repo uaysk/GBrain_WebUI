@@ -24,6 +24,7 @@ test("live graph snapshot satisfies the MVP data contract", async () => {
   const unauthenticated = await fetch(`${base}/api/graph`);
   expect(unauthenticated.status).toBe(401);
   expect(JSON.stringify(await unauthenticated.json())).not.toContain("counts");
+  expect((await fetch(`${base}/api/node-detail?id=missing`)).status).toBe(401);
   const cookie = await authenticatedCookie();
   const response = await fetch(`${base}/api/graph`, { headers: { Cookie: cookie } });
   expect(response.status).toBe(200);
@@ -73,4 +74,12 @@ test("live graph snapshot satisfies the MVP data contract", async () => {
   expect(serialized).not.toContain("compiled_truth");
   expect(serialized).not.toContain("GBRAIN_DB_PASSWORD");
   expect(serialized.toLowerCase()).not.toContain("hdbscan");
+  const detailResponse = await fetch(`${base}/api/node-detail?id=${encodeURIComponent(graph.nodes[0]!.id)}`, { headers: { Cookie: cookie } });
+  expect(detailResponse.status).toBe(200);
+  const detail = await detailResponse.json();
+  expect(detail.id).toBe(graph.nodes[0]!.id);
+  expect(typeof detail.content).toBe("string");
+  expect(typeof detail.contentTruncated).toBe("boolean");
+  expect((await fetch(`${base}/api/node-detail`, { headers: { Cookie: cookie } })).status).toBe(400);
+  expect((await fetch(`${base}/api/node-detail?id=${encodeURIComponent("default::missing-node")}`, { headers: { Cookie: cookie } })).status).toBe(404);
 });

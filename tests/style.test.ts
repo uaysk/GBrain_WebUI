@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { assignCurvatures, familyForType, RELATION_STYLE, shapeForType } from "../server/style";
+import { RELATION_DIRECTION_ARROW_LENGTH } from "../src/graph/visual-spec";
 
 describe("node shape mapping", () => {
   test("maps every required page type", () => {
@@ -32,6 +33,7 @@ describe("relation style mapping", () => {
       { id: "c", source: "one", target: "one", family: "custom" as const },
     ]);
     expect(edges.every((edge) => edge.curvature === 0)).toBe(true);
+    expect(RELATION_DIRECTION_ARROW_LENGTH).toBe(0);
     expect(edges[2]!.selfLink).toBe(true);
     expect(RELATION_STYLE.semantic.width).toBe(0.6);
     expect(RELATION_STYLE.temporal.width).toBe(3);

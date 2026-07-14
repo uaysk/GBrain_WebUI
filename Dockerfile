@@ -19,7 +19,7 @@ WORKDIR /app
 COPY --from=dependencies --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=build --chown=bun:bun /app/dist ./dist
 COPY --from=build --chown=bun:bun /app/server ./server
-COPY --from=build --chown=bun:bun /app/src/types.ts ./src/types.ts
+COPY --from=build --chown=bun:bun /app/src ./src
 COPY --chown=bun:bun package.json ./package.json
 
 USER bun

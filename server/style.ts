@@ -1,29 +1,14 @@
-import type { NodeShape, RelationFamily } from "../src/types";
+import type { RelationFamily } from "../src/types";
+import { RELATION_VISUALS, shapeForType } from "../src/graph/visual-spec";
+
+export { shapeForType };
 
 export const GROUP_COLORS = [
   "#5DA9E9", "#E07A7A", "#72B89A", "#D5A75E", "#9B83D4", "#72B7C7", "#D687B8", "#A7B565", "#9AABBF", "#C88962",
   "#7E9FDB", "#B88DC7", "#6FA6A0", "#B39A66", "#8FA36B", "#C27C91", "#7896B4", "#AA856E", "#7B9A7C", "#9C83A8",
 ];
 
-export const RELATION_STYLE: Record<RelationFamily, { color: string; dash: number[]; width: number; directed: boolean }> = {
-  semantic: { color: "#4CC9D9", dash: [], width: 0.6, directed: false },
-  mention: { color: "#4F8FE8", dash: [1, 3], width: 1.1, directed: true },
-  association: { color: "#4FAF79", dash: [], width: 1.6, directed: false },
-  hierarchy: { color: "#D98A42", dash: [], width: 2.6, directed: true },
-  provenance: { color: "#9B72D7", dash: [4, 3], width: 2, directed: true },
-  temporal: { color: "#D45C5C", dash: [9, 5], width: 3, directed: true },
-  custom: { color: "#4FAF79", dash: [], width: 1.6, directed: false },
-};
-
-export function shapeForType(type: string): NodeShape {
-  if (type === "concept") return "circle";
-  if (["project", "project_note"].includes(type)) return "square";
-  if (["note", "analysis", "guide"].includes(type)) return "diamond";
-  if (["incident", "incident-followup"].includes(type)) return "triangle";
-  if (["project-log", "ops-snapshot", "infrastructure-snapshot"].includes(type)) return "hexagon";
-  if (type === "extract_receipt") return "octagon";
-  return "pentagon";
-}
+export const RELATION_STYLE = RELATION_VISUALS;
 
 const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s-]+/g, "_");
 const mentions = new Set(["mention", "mentions", "reference", "references", "markdown", "wikilink"]);

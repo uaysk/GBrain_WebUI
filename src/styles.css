@@ -5,7 +5,42 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 button { cursor: pointer; }
 .scene-tooltip, .float-tooltip-kap { z-index: 80 !important; pointer-events: none !important; }
-.graph-tooltip { display: flex; min-width: 180px; max-width: 320px; flex-direction: column; gap: 3px; border: 1px solid #3f3f46; border-radius: 7px; background: rgba(9, 9, 11, .96); padding: 9px 11px; color: #a1a1aa; font: 11px/1.35 Inter, Pretendard, sans-serif; box-shadow: none; }
+.graph-tooltip { display: flex; min-width: 180px; max-width: 320px; flex-direction: column; gap: 3px; border-radius: 7px; background: rgba(39, 39, 42, .96); padding: 9px 11px; color: #a1a1aa; font: 11px/1.35 Inter, Pretendard, sans-serif; box-shadow: none; }
 .graph-tooltip strong { margin-bottom: 2px; color: #fafafa; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .graph-tooltip span { overflow-wrap: anywhere; }
 canvas { display: block; outline: none; }
+
+.markdown-document { color: #d4d4d8; font-size: 14px; line-height: 1.72; overflow-wrap: anywhere; }
+.markdown-document > :first-child { margin-top: 0; }
+.markdown-document > :last-child { margin-bottom: 0; }
+.markdown-document h1, .markdown-document h2, .markdown-document h3, .markdown-document h4 { margin: 1.65em 0 .65em; color: #fafafa; font-weight: 650; line-height: 1.28; }
+.markdown-document h1 { font-size: 1.75em; }
+.markdown-document h2 { font-size: 1.4em; }
+.markdown-document h3 { font-size: 1.16em; }
+.markdown-document h4 { font-size: 1em; }
+.markdown-document p, .markdown-document ul, .markdown-document ol, .markdown-document blockquote, .markdown-document pre, .markdown-document table { margin: .8em 0; }
+.markdown-document ul, .markdown-document ol { padding-left: 1.45em; }
+.markdown-document ul { list-style: disc; }
+.markdown-document ol { list-style: decimal; }
+.markdown-document li { margin: .24em 0; }
+.markdown-document li::marker { color: #71717a; }
+.markdown-document a { color: #67e8f9; text-decoration: underline; text-decoration-color: rgba(103, 232, 249, .35); text-underline-offset: 3px; }
+.markdown-document a:hover { color: #cffafe; text-decoration-color: currentColor; }
+.markdown-document strong { color: #f4f4f5; font-weight: 650; }
+.markdown-document em { color: #e4e4e7; }
+.markdown-document hr { height: 1px; margin: 1.6em 0; border: 0; background: #27272a; }
+.markdown-document blockquote { border-left: 3px solid #3f3f46; background: rgba(39, 39, 42, .45); padding: .55em .9em; color: #a1a1aa; }
+.markdown-document code { border-radius: 4px; background: #27272a; padding: .12em .35em; color: #f0abfc; font: .9em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.markdown-document pre { overflow-x: auto; border-radius: 8px; background: #18181b; padding: 1em; }
+.markdown-document pre code { background: transparent; padding: 0; color: #d4d4d8; font-size: .86em; }
+.markdown-document table { display: block; width: max-content; min-width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .9em; }
+.markdown-document th, .markdown-document td { border-bottom: 1px solid #27272a; padding: .48em .7em; text-align: left; vertical-align: top; }
+.markdown-document th { background: #18181b; color: #f4f4f5; font-weight: 600; }
+.markdown-document tr:nth-child(even) td { background: rgba(39, 39, 42, .28); }
+.markdown-document input[type="checkbox"] { margin-right: .45em; accent-color: #06b6d4; }
+.markdown-image-placeholder { display: inline-flex; border-radius: 5px; background: #27272a; padding: .25em .55em; color: #a1a1aa; font-size: .86em; }
+.markdown-document-compact { color: #a1a1aa; font-size: 10px; line-height: 1.55; }
+.markdown-document-compact h1, .markdown-document-compact h2, .markdown-document-compact h3, .markdown-document-compact h4 { margin: .8em 0 .4em; font-size: 1.08em; }
+.markdown-document-compact p, .markdown-document-compact ul, .markdown-document-compact ol, .markdown-document-compact blockquote, .markdown-document-compact pre, .markdown-document-compact table { margin: .48em 0; }
+.markdown-document-compact pre { padding: .65em; }
+.markdown-document-compact th, .markdown-document-compact td { padding: .3em .45em; }

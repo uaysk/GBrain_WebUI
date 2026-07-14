@@ -3,58 +3,73 @@ import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import type { GraphEdge, GraphNode, GraphResponse } from "../types";
-import { COMMUNITY_LABEL_STYLE, communityLabelTitle, connectedNodeIdsForGroup, pixelAlignedLabelOrigin } from "./community-label";
+import { COMMUNITY_LABEL_STYLE, communityLabelTitle, pixelAlignedLabelOrigin } from "./community-label";
+import { cameraPoseForNodes } from "./camera";
+import { activeGraphEdges, bundleGraphEdges, connectedNodeIdsForGroup, endpointId, neighborIdsForNode, type GraphLayerSettings, type RenderEdge } from "./graph-layers";
+import { createCommunityHaloMeshes, disposeHaloRoot, haloTransformForNodes, nodesInCommunityHalo } from "./halo";
 import { createMap2DLayout, easeInOutCubic, type MapViewMode } from "./layout-2d";
 import { createMorphHaloBatch, type MorphHaloBatch } from "./morph-halo-batch";
 import { createMorphNodeBatch, type MorphNodeBatch } from "./morph-node-batch";
 import { createEdgeObject, createNodeObject, edgeSegmentPositions, updateEdgeObject } from "./rendering";
+import { RELATION_DIRECTION_ARROW_LENGTH } from "./visual-spec";
 
 export interface GraphControls { fit: () => void; reset: () => void }
-interface Props { graph: GraphResponse; viewMode: MapViewMode; labelsOn: boolean; semanticOn: boolean; explicitOn: boolean; selectedId: string | null; onSelect: (id: string | null) => void }
-type RenderEdge = GraphEdge & { bundledEdges?: GraphEdge[] };
+interface Props {
+  graph: GraphResponse;
+  viewMode: MapViewMode;
+  labelsOn: boolean;
+  layers: GraphLayerSettings;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onCommunityFocus: (id: string | null) => void;
+}
 
-const endpointId = (value: string | GraphNode) => typeof value === "string" ? value : value.id;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
-const relationPriority: Record<GraphEdge["family"], number> = { temporal: 6, hierarchy: 5, provenance: 4, association: 3, mention: 2, semantic: 1, custom: 0 };
 
-export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph({ graph, viewMode, labelsOn, semanticOn, explicitOn, selectedId, onSelect }, ref) {
+export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph({ graph, viewMode, labelsOn, layers, selectedId, onSelect, onCommunityFocus }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const labelLayerRef = useRef<HTMLDivElement>(null);
   const haloRootRef = useRef<THREE.Group | null>(null);
   const haloRaycasterRef = useRef(new THREE.Raycaster());
   const hoveredGroupIdRef = useRef<string | null>(null);
+  const focusedCommunityIdRef = useRef<string | null>(null);
   const viewModeRef = useRef<MapViewMode>(viewMode);
   const flatnessRef = useRef(viewMode === "2d" ? 1 : 0);
   const morphFrameRef = useRef<number | null>(null);
   const edgeFadeFrameRef = useRef<number | null>(null);
+  const previousSelectedIdRef = useRef<string | null>(null);
+  const skipClearFitRef = useRef(false);
   const labelSizeRef = useRef(new Map<string, { width: number; height: number }>());
   const graphRef = useRef<any>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  const [sceneReadyTick, setSceneReadyTick] = useState(0);
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver(([entry]) => entry && setSize({ width: Math.max(1, entry.contentRect.width), height: Math.max(1, entry.contentRect.height) }));
     observer.observe(containerRef.current); return () => observer.disconnect();
   }, []);
-  const visibleEdges = useMemo<RenderEdge[]>(() => {
-    const candidates = [...(explicitOn ? graph.explicitEdges : []), ...(semanticOn ? graph.semanticEdges : [])];
-    const bundles = new Map<string, GraphEdge[]>();
-    for (const edge of candidates) {
-      const key = [endpointId(edge.source), endpointId(edge.target)].sort().join("\u0000");
-      bundles.set(key, [...(bundles.get(key) ?? []), edge]);
-    }
-    return [...bundles.values()].map((edges) => {
-      const sorted = [...edges].sort((left, right) => relationPriority[right.family] - relationPriority[left.family] || left.id.localeCompare(right.id));
-      return { ...sorted[0]!, bundledEdges: sorted };
-    });
-  }, [graph, explicitOn, semanticOn]);
-  const neighbors = useMemo(() => {
-    const set = new Set<string>(); if (!selectedId) return set; set.add(selectedId);
-    for (const edge of [...graph.explicitEdges, ...graph.semanticEdges]) {
-      const source = endpointId(edge.source); const target = endpointId(edge.target);
-      if (source === selectedId) set.add(target); if (target === selectedId) set.add(source);
-    }
-    return set;
-  }, [graph, selectedId]);
+  useEffect(() => {
+    let frame: number | null = null;
+    let attempts = 0;
+    const check = () => {
+      let nodeFound = false;
+      const scene = graphRef.current?.scene?.() as THREE.Scene | undefined;
+      scene?.traverse((object) => { if (object.name === "memory-node-object") nodeFound = true; });
+      if (scene && nodeFound) {
+        setSceneReadyTick((current) => current + 1);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 120) frame = requestAnimationFrame(check);
+    };
+    frame = requestAnimationFrame(check);
+    return () => { if (frame !== null) cancelAnimationFrame(frame); };
+  }, [graph.generatedAt]);
+  const activeEdges = useMemo(() => activeGraphEdges(graph, layers), [graph, layers]);
+  const visibleEdges = useMemo<RenderEdge[]>(() => bundleGraphEdges(activeEdges), [activeEdges]);
+  const visibleEdgesRef = useRef(visibleEdges);
+  visibleEdgesRef.current = visibleEdges;
+  const neighbors = useMemo(() => neighborIdsForNode(selectedId, activeEdges), [activeEdges, selectedId]);
   const renderNodeObject = useCallback((raw: object) => {
     const node = raw as GraphNode;
     const selected = node.id === selectedId;
@@ -80,16 +95,19 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
   }, [selectedId]);
   const updateRenderedLinkPosition = useCallback((object: object, coordinates: object, raw: object) =>
     updateEdgeObject(object as THREE.Object3D, coordinates as { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }, raw as GraphEdge), []);
+  const titleById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.title])), [graph.nodes]);
   const renderLinkTooltip = useCallback((raw: object) => {
     const edge = raw as RenderEdge;
-    const relations = edge.bundledEdges ?? [edge];
+    const relations = edge.bundledEdges;
     const details = relations.map((relation) => {
-      const direction = relation.directed ? `${escapeHtml(endpointId(relation.source))} → ${escapeHtml(endpointId(relation.target))}` : "Undirected";
+      const source = titleById.get(endpointId(relation.source)) ?? endpointId(relation.source);
+      const target = titleById.get(endpointId(relation.target)) ?? endpointId(relation.target);
+      const direction = relation.directed ? `${escapeHtml(source)} → ${escapeHtml(target)}` : "Undirected";
       const similarity = relation.similarity === null ? "" : ` · ${relation.similarity.toFixed(4)}`;
       return `<span>${escapeHtml(relation.linkType)} · ${direction}${similarity}</span>`;
     }).join("");
-    return `<div class="graph-tooltip"><strong>${escapeHtml(edge.family)}${relations.length > 1 ? ` · ${relations.length} relations` : ""}</strong><span>Pattern · ${edge.dashPattern.length ? "dashed/dotted" : "solid"} · ${edge.width.toFixed(1)}px</span>${details}</div>`;
-  }, []);
+    return `<div class="graph-tooltip"><strong>${escapeHtml(edge.family)}${relations.length > 1 ? ` · ${relations.length} relations` : ""}</strong><span>${edge.dashPattern.length ? "Dashed relation" : "Solid relation"}</span>${details}</div>`;
+  }, [titleById]);
   const renderNodes = useMemo(() => graph.nodes.map((node) => ({ ...node, fx: node.x, fy: node.y, fz: node.z })), [graph.nodes]);
   const graphData = useMemo(() => ({
     nodes: renderNodes,
@@ -101,39 +119,24 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
   ), [graph.nodes, graph.semanticGroups]);
   const haloMembersByGroup = useMemo(() => new Map(haloGroups.map((group) => [
     group.id,
-    renderNodes.filter((node) => node.groupId === group.id && node.hasEmbedding),
+    nodesInCommunityHalo(renderNodes, group.id),
   ])), [haloGroups, renderNodes]);
   const hoverFocusByGroup = useMemo(() => new Map(graph.semanticGroups.map((group) => [
     group.id,
-    connectedNodeIdsForGroup(graph.nodes, [...graph.explicitEdges, ...graph.semanticEdges], group.id),
-  ])), [graph.explicitEdges, graph.nodes, graph.semanticEdges, graph.semanticGroups]);
+    connectedNodeIdsForGroup(graph.nodes, activeEdges, group.id),
+  ])), [activeEdges, graph.nodes, graph.semanticGroups]);
   const syncHaloTransforms = useCallback(() => {
     const root = haloRootRef.current;
     if (!root) return;
     for (const semanticGroup of haloGroups) {
       const members = haloMembersByGroup.get(semanticGroup.id) ?? [];
-      if (!members.length) continue;
-      const minimum: [number, number, number] = [Infinity, Infinity, Infinity];
-      const maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-      for (const node of members) {
-        const point = [Number(node.x ?? 0), Number(node.y ?? 0), Number(node.z ?? 0)];
-        for (let axis = 0; axis < 3; axis += 1) {
-          minimum[axis] = Math.min(minimum[axis]!, point[axis]!);
-          maximum[axis] = Math.max(maximum[axis]!, point[axis]!);
-        }
-      }
-      const center = minimum.map((value, axis) => (value + maximum[axis]!) / 2) as [number, number, number];
-      const volumeRadii = minimum.map((value, axis) => Math.max(7, (maximum[axis]! - value) / 2 + 6)) as [number, number, number];
-      const radii: [number, number, number] = [
-        volumeRadii[0],
-        volumeRadii[1],
-        volumeRadii[2] * (1 - flatnessRef.current) + 1.35 * flatnessRef.current,
-      ];
+      const transform = haloTransformForNodes(members, flatnessRef.current);
+      if (!transform) continue;
       for (const object of root.children) {
         if (!(object instanceof THREE.Mesh) || object.userData.haloGroupId !== semanticGroup.id) continue;
-        object.position.set(...center);
+        object.position.set(...transform.center);
         const scale = object.userData.haloLayer === "outer" ? 1.16 : 1;
-        object.scale.set(radii[0] * scale, radii[1] * scale, radii[2] * scale);
+        object.scale.set(transform.radii[0] * scale, transform.radii[1] * scale, transform.radii[2] * scale);
       }
     }
   }, [haloGroups, haloMembersByGroup]);
@@ -173,24 +176,48 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       element.style.opacity = "1";
     }
   }, [labelsOn, size]);
-  const fit = (duration = 500) => {
+  const moveCameraToNodeIds = useCallback((ids: ReadonlySet<string>, duration = 500) => {
+    const nodes = renderNodes.filter((node) => ids.has(node.id));
+    const camera = graphRef.current?.camera?.() as THREE.Camera | undefined;
+    const pose = cameraPoseForNodes(nodes, viewModeRef.current, {
+      x: Number(camera?.position.x ?? 210),
+      y: Number(camera?.position.y ?? 155),
+      z: Number(camera?.position.z ?? 245),
+    });
+    if (pose) graphRef.current?.cameraPosition(pose.position, pose.target, duration);
+  }, [renderNodes]);
+  const fit = useCallback((duration = 500) => {
     if (viewModeRef.current === "2d") {
       graphRef.current?.cameraPosition({ x: 0, y: 0, z: Math.max(220, map2DLayout.extent * 2.5) }, { x: 0, y: 0, z: 0 }, duration);
       return;
     }
     graphRef.current?.zoomToFit(duration, 14);
-  };
-  const reset = (duration = 500) => graphRef.current?.cameraPosition(
+  }, [map2DLayout.extent]);
+  const reset = useCallback((duration = 500) => graphRef.current?.cameraPosition(
     viewModeRef.current === "2d" ? { x: 0, y: 0, z: Math.max(220, map2DLayout.extent * 2.5) } : { x: 210, y: 155, z: 245 },
     { x: 0, y: 0, z: 0 },
     duration,
-  );
-  useImperativeHandle(ref, () => ({ fit: () => fit(), reset }));
+  ), [map2DLayout.extent]);
+  useImperativeHandle(ref, () => ({ fit: () => fit(), reset }), [fit, reset]);
   useEffect(() => {
+    if (selectedId) return;
     reset(0);
     const timer = window.setTimeout(() => fit(0), 250);
     return () => clearTimeout(timer);
   }, [graph.generatedAt, size.width, size.height]);
+
+  useEffect(() => {
+    const previous = previousSelectedIdRef.current;
+    previousSelectedIdRef.current = selectedId;
+    if (!selectedId && !skipClearFitRef.current && containerRef.current) containerRef.current.dataset.focusedCommunity = "";
+    const dimensionChanging = viewModeRef.current !== viewMode;
+    const timer = window.setTimeout(() => {
+      if (selectedId && neighbors.size) moveCameraToNodeIds(neighbors);
+      else if (previous && !skipClearFitRef.current) fit();
+      skipClearFitRef.current = false;
+    }, dimensionChanging ? 1140 : 90);
+    return () => clearTimeout(timer);
+  }, [activeEdges, graph.generatedAt, moveCameraToNodeIds, neighbors, selectedId, viewMode]);
 
   useEffect(() => {
     if (!labelsOn) return;
@@ -214,6 +241,21 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
     };
   }, [labelsOn, positionCommunityLabels]);
 
+  useEffect(() => {
+    const controls = graphRef.current?.controls?.();
+    const update = () => {
+      const camera = graphRef.current?.camera?.() as THREE.Camera | undefined;
+      const container = containerRef.current;
+      if (!camera || !container) return;
+      container.dataset.cameraX = camera.position.x.toFixed(3);
+      container.dataset.cameraY = camera.position.y.toFixed(3);
+      container.dataset.cameraZ = camera.position.z.toFixed(3);
+    };
+    controls?.addEventListener?.("change", update);
+    update();
+    return () => controls?.removeEventListener?.("change", update);
+  }, [sceneReadyTick]);
+
   useEffect(() => { hoveredGroupIdRef.current = null; }, [labelsOn]);
 
   useEffect(() => {
@@ -223,32 +265,7 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
     root.name = "leiden-community-halos";
     root.renderOrder = -10;
     for (const semanticGroup of haloGroups) {
-      const geometry = new THREE.SphereGeometry(1, 24, 16);
-      const inner = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        color: semanticGroup.color,
-        transparent: true,
-        opacity: 0.06,
-        depthWrite: false,
-        side: THREE.BackSide,
-      }));
-      inner.userData.groupId = semanticGroup.id;
-      inner.userData.haloGroupId = semanticGroup.id;
-      inner.userData.haloLayer = "inner";
-      inner.userData.baseOpacity = inner.material.opacity;
-      inner.name = "community-halo-hit-target";
-      root.add(inner);
-      const outer = new THREE.Mesh(geometry.clone(), new THREE.MeshBasicMaterial({
-        color: semanticGroup.color,
-        transparent: true,
-        opacity: 0.038,
-        depthWrite: false,
-        side: THREE.BackSide,
-        blending: THREE.AdditiveBlending,
-      }));
-      outer.userData.haloGroupId = semanticGroup.id;
-      outer.userData.haloLayer = "outer";
-      outer.userData.baseOpacity = outer.material.opacity;
-      root.add(outer);
+      root.add(...createCommunityHaloMeshes(semanticGroup.id, semanticGroup.color));
     }
     scene.add(root);
     haloRootRef.current = root;
@@ -257,15 +274,9 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
     return () => {
       if (haloRootRef.current === root) haloRootRef.current = null;
       scene.remove(root);
-      root.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-          else object.material.dispose();
-        }
-      });
+      disposeHaloRoot(root);
     };
-  }, [graph.generatedAt, haloGroups, positionCommunityLabels, syncHaloTransforms]);
+  }, [graph.generatedAt, haloGroups, positionCommunityLabels, sceneReadyTick, syncHaloTransforms]);
 
   useEffect(() => {
     const selectedGroupId = graph.nodes.find((node) => node.id === selectedId)?.groupId ?? null;
@@ -319,21 +330,83 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
     hoveredGroupIdRef.current = next;
   }, [hoverFocusByGroup]);
 
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const clearCommunityFocus = useCallback((returnToOverview = true) => {
+    const hadFocus = focusedCommunityIdRef.current !== null;
+    focusedCommunityIdRef.current = null;
+    skipClearFitRef.current = false;
+    onCommunityFocus(null);
+    if (containerRef.current) {
+      containerRef.current.dataset.focusedCommunity = "";
+      containerRef.current.dataset.focusedCommunityMemberCount = "0";
+    }
+    if (hadFocus && returnToOverview) fit();
+    return hadFocus;
+  }, [fit, onCommunityFocus]);
+
+  const haloGroupAt = useCallback((clientX: number, clientY: number) => {
     const camera = graphRef.current?.camera?.() as THREE.Camera | undefined;
     const root = haloRootRef.current;
     const container = containerRef.current;
-    if (!camera || !root || !container) return;
+    if (!camera || !root || !container) return null;
     const bounds = container.getBoundingClientRect();
     const pointer = new THREE.Vector2(
-      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+      ((clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((clientY - bounds.top) / bounds.height) * 2 + 1,
     );
     const raycaster = haloRaycasterRef.current;
     raycaster.setFromCamera(pointer, camera);
     const hit = raycaster.intersectObjects(root.children.filter((object) => Boolean(object.userData.groupId)), false)[0];
-    setHoveredGroup(typeof hit?.object.userData.groupId === "string" ? hit.object.userData.groupId : null);
-  }, [setHoveredGroup]);
+    return typeof hit?.object.userData.groupId === "string" ? hit.object.userData.groupId : null;
+  }, []);
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    setHoveredGroup(haloGroupAt(event.clientX, event.clientY));
+  }, [haloGroupAt, setHoveredGroup]);
+
+  const handleBackgroundClick = useCallback((event: MouseEvent) => {
+    const groupId = haloGroupAt(event.clientX, event.clientY);
+    if (!groupId) {
+      clearCommunityFocus();
+      onSelect(null);
+      return;
+    }
+    focusedCommunityIdRef.current = groupId;
+    skipClearFitRef.current = true;
+    onSelect(null);
+    onCommunityFocus(groupId);
+    const members = new Set((haloMembersByGroup.get(groupId) ?? []).map((node) => node.id));
+    moveCameraToNodeIds(members);
+    if (containerRef.current) {
+      containerRef.current.dataset.focusedCommunity = groupId;
+      containerRef.current.dataset.focusedCommunityMemberCount = String(members.size);
+    }
+  }, [clearCommunityFocus, haloGroupAt, haloMembersByGroup, moveCameraToNodeIds, onCommunityFocus, onSelect]);
+
+  const handleNodeClick = useCallback((raw: object) => {
+    clearCommunityFocus(false);
+    onSelect((raw as GraphNode).id);
+  }, [clearCommunityFocus, onSelect]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !focusedCommunityIdRef.current) return;
+      event.preventDefault();
+      setHoveredGroup(null);
+      clearCommunityFocus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearCommunityFocus, setHoveredGroup]);
+
+  useEffect(() => {
+    if (!focusedCommunityIdRef.current) return;
+    clearCommunityFocus(false);
+  }, [clearCommunityFocus, graph.generatedAt, viewMode]);
+
+  useEffect(() => {
+    if (!selectedId || !focusedCommunityIdRef.current) return;
+    clearCommunityFocus(false);
+  }, [clearCommunityFocus, selectedId]);
 
   useEffect(() => { setHoveredGroup(null); }, [graph.generatedAt, labelsOn, selectedId, setHoveredGroup, viewMode]);
 
@@ -441,6 +514,35 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       container.dataset.cameraX = Number(camera?.position.x ?? 0).toFixed(3);
       container.dataset.cameraY = Number(camera?.position.y ?? 0).toFixed(3);
       container.dataset.cameraZ = Number(camera?.position.z ?? 0).toFixed(3);
+      if (camera) {
+        const bounds = container.getBoundingClientRect();
+        const nodeHoverPoints = renderNodes.flatMap((node) => {
+          const projected = new THREE.Vector3(Number(node.x ?? 0), Number(node.y ?? 0), Number(node.z ?? 0)).project(camera);
+          if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || projected.z < -1 || projected.z > 1) return [];
+          return [{
+            id: node.id,
+            x: Math.round(bounds.left + (projected.x + 1) * bounds.width / 2),
+            y: Math.round(bounds.top + (1 - projected.y) * bounds.height / 2),
+          }];
+        });
+        const hoverPoints = visibleEdgesRef.current.flatMap((edge) => {
+          const source = renderNodeById.get(endpointId(edge.source));
+          const target = renderNodeById.get(endpointId(edge.target));
+          if (!source || !target) return [];
+          const projected = new THREE.Vector3(
+            (Number(source.x ?? 0) + Number(target.x ?? 0)) / 2,
+            (Number(source.y ?? 0) + Number(target.y ?? 0)) / 2,
+            (Number(source.z ?? 0) + Number(target.z ?? 0)) / 2,
+          ).project(camera);
+          if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1 || projected.z < -1 || projected.z > 1) return [];
+          return [{
+            x: Math.round(bounds.left + (projected.x + 1) * bounds.width / 2),
+            y: Math.round(bounds.top + (1 - projected.y) * bounds.height / 2),
+          }];
+        });
+        container.dataset.nodeHoverPoints = JSON.stringify(nodeHoverPoints);
+        container.dataset.edgeHoverPoints = JSON.stringify(hoverPoints);
+      }
     };
     if (edgeFadeFrameRef.current !== null) cancelAnimationFrame(edgeFadeFrameRef.current);
     edgeFadeFrameRef.current = null;
@@ -724,7 +826,7 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       restoreEdgeOpacity(edgeObjects);
       if (settleTimer !== null) clearTimeout(settleTimer);
     };
-  }, [graph.generatedAt, graph.nodes, map2DLayout, positionCommunityLabels, renderNodes, syncHaloTransforms, viewMode]);
+  }, [graph.generatedAt, graph.nodes, map2DLayout, positionCommunityLabels, renderNodes, sceneReadyTick, syncHaloTransforms, viewMode]);
 
   return (
     <div
@@ -733,6 +835,12 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       data-testid="memory-graph"
       data-view-mode={viewMode}
       data-view-transitioning="false"
+      data-active-edge-count={activeEdges.length}
+      data-active-neighbor-count={neighbors.size}
+      data-selected-id={selectedId ?? ""}
+      data-direction-arrows="false"
+      data-focused-community=""
+      data-focused-community-member-count="0"
       data-2d-min-node-gap={map2DLayout.minimumNodeGap.toFixed(3)}
       data-2d-min-community-gap={map2DLayout.minimumCommunityGap.toFixed(3)}
       onPointerMove={handlePointerMove}
@@ -746,9 +854,9 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
         linkThreeObject={renderLinkObject}
         linkPositionUpdate={updateRenderedLinkPosition}
         linkCurvature={() => 0}
-        linkDirectionalArrowLength={() => 0}
+        linkDirectionalArrowLength={RELATION_DIRECTION_ARROW_LENGTH}
         linkLabel={renderLinkTooltip}
-        onNodeClick={(raw: object) => onSelect((raw as GraphNode).id)} onBackgroundClick={() => onSelect(null)}
+        onNodeClick={handleNodeClick} onBackgroundClick={handleBackgroundClick}
       />
       {labelsOn && <div ref={labelLayerRef} className="pointer-events-none absolute inset-0 z-20 overflow-hidden" aria-label="Community labels">
         {haloGroups.map((semanticGroup) => <div

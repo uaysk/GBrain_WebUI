@@ -8,7 +8,7 @@
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production bun server/index.ts",
-    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
+    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/graph-layers.test.ts tests/interaction.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
     "test:smoke": "bun test tests/smoke.test.ts",
     "test:e2e": "playwright test"
   },
@@ -24,6 +24,8 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-force-graph-3d": "^1.29.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",
     "three": "^0.180.0",
     "three-spritetext": "^1.10.0",
