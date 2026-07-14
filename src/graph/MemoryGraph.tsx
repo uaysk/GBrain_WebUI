@@ -8,6 +8,7 @@ import { cameraPoseForNodes } from "./camera";
 import { activeGraphEdges, bundleGraphEdges, connectedNodeIdsForGroup, endpointId, neighborIdsForNode, type GraphLayerSettings, type RenderEdge } from "./graph-layers";
 import { createCommunityHaloMeshes, disposeHaloRoot, haloTransformForNodes, nodesInCommunityHalo } from "./halo";
 import { createMap2DLayout, easeInOutCubic, type MapViewMode } from "./layout-2d";
+import { configureNavigationControls } from "./navigation-controls";
 import { createMorphHaloBatch, type MorphHaloBatch } from "./morph-halo-batch";
 import { createMorphNodeBatch, type MorphNodeBatch } from "./morph-node-batch";
 import { createEdgeObject, createNodeObject, edgeSegmentPositions, updateEdgeObject } from "./rendering";
@@ -689,10 +690,7 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       ? { x: 0, y: 0, z: Math.max(220, map2DLayout.extent * 2.5) }
       : { x: 210, y: 155, z: 245 };
     viewModeRef.current = viewMode;
-    if (controls) {
-      controls.noRotate = viewMode === "2d";
-      if ("enableRotate" in controls) controls.enableRotate = viewMode !== "2d";
-    }
+    configureNavigationControls(controls, viewMode);
     if (container) {
       container.dataset.viewTransitioning = duration ? "true" : "false";
       container.dataset.morphProgress = "0";
@@ -840,6 +838,7 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       className="relative h-full min-h-0 w-full overflow-hidden"
       data-testid="memory-graph"
       data-view-mode={viewMode}
+      data-left-drag-action={viewMode === "2d" ? "pan" : "rotate"}
       data-view-transitioning="false"
       data-active-edge-count={activeEdges.length}
       data-active-neighbor-count={neighbors.size}

@@ -37,8 +37,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [focusedCommunityId, setFocusedCommunityId] = useState<string | null>(null);
   const { state, patchState } = useGraphExplorerState(graph);
-  const { selectedId, viewMode, communityLabelsOn, semanticOn, explicitOn, semanticThreshold, explicitFamilies } = state;
-  const history = useGraphTimeline(timeline);
+  const { selectedId, viewMode, timelineOn, communityLabelsOn, semanticOn, explicitOn, semanticThreshold, explicitFamilies } = state;
+  const history = useGraphTimeline(timelineOn ? timeline : null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -81,9 +81,9 @@ export default function App() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "새로고침에 실패했습니다."); }
     finally { setRefreshing(false); }
   };
-  const timelineProjection = useMemo(() => graph && timeline && history.frame
+  const timelineProjection = useMemo(() => timelineOn && graph && timeline && history.frame
     ? projectGraphAtFrame(graph, timeline, history.frame)
-    : null, [graph, history.frame, timeline]);
+    : null, [graph, history.frame, timeline, timelineOn]);
   const displayedGraph = timelineProjection?.graph ?? graph;
   const counts = displayedGraph?.counts ?? status?.counts;
   const layers = useMemo(() => ({ semanticOn, explicitOn, minSemanticSimilarity: semanticThreshold, explicitFamilies }), [explicitFamilies, explicitOn, semanticOn, semanticThreshold]);
@@ -100,6 +100,8 @@ export default function App() {
     : [], [focusedCommunityId, displayedGraph]);
   const dbState = loading ? "connecting" : error || status?.connected === false ? "failed" : status?.connected ? "connected" : "connecting";
   const generatedAt = graph?.generatedAt ?? status?.lastBuiltAt;
+  const timelineVisible = Boolean(timelineOn && timeline && history.frame);
+  const overlayBottomClass = timelineVisible ? "bottom-[92px]" : "bottom-3";
   const selectNode = useCallback((id: string | null) => {
     if (id) setFocusedCommunityId(null);
     patchState({ selectedId: id });
@@ -133,10 +135,12 @@ export default function App() {
         {loading && <div className="absolute inset-0 z-30 grid place-items-center bg-[#080808]"><div className="flex items-center gap-3 text-sm text-zinc-400"><RefreshCw className="size-4 animate-spin" />UMAP · Leiden graph를 생성하는 중…</div></div>}
         {error && <div className="absolute left-1/2 top-5 z-40 -translate-x-1/2 rounded-md bg-red-950 px-4 py-2 text-xs text-red-200">{error}</div>}
         {graph && displayedGraph && <><MemoryGraph ref={controls} graph={displayedGraph} viewMode={viewMode} labelsOn={communityLabelsOn} layers={layers} selectedId={effectiveSelectedId} changedNodeIds={timelineProjection?.changedNodeIds} onSelect={selectNode} onCommunityFocus={setFocusedCommunityId} /><Legend />
-          <div className="pointer-events-none absolute bottom-[92px] right-3 top-3 z-30 flex w-[min(310px,calc(100vw-24px))] flex-col gap-2">
+          <div className={`pointer-events-none absolute right-3 top-3 z-30 flex w-[min(310px,calc(100vw-24px))] flex-col gap-2 ${overlayBottomClass}`}>
             <LayerControls
+              timelineOn={timelineOn}
               semanticOn={semanticOn} explicitOn={explicitOn} threshold={semanticThreshold} minimumThreshold={displayedGraph.communityDetection.minSemanticSimilarity}
               explicitFamilies={explicitFamilies}
+              onTimelineOnChange={(value) => patchState({ timelineOn: value })}
               onSemanticOnChange={(value) => patchState({ semanticOn: value })}
               onExplicitOnChange={(value) => patchState({ explicitOn: value })}
               onThresholdChange={(value) => patchState({ semanticThreshold: Math.max(-1, Math.min(1, value)) })}
@@ -146,11 +150,11 @@ export default function App() {
               ? <NodeContextPanel node={selectedNode} detailState={nodeDetailState} relatedNodes={selectedRelatedNodes} onSelectNode={selectNode} onClose={() => selectNode(null)} />
               : focusedCommunity && <CommunityNodeList group={focusedCommunity} nodes={focusedCommunityNodes} onSelectNode={selectNode} />}
           </div>
-          <div className="pointer-events-none absolute bottom-[92px] left-3 z-10 rounded-md bg-zinc-900/85 px-3 py-2 text-[10px] text-zinc-500">
+          <div className={`pointer-events-none absolute left-3 z-10 rounded-md bg-zinc-900/85 px-3 py-2 text-[10px] text-zinc-500 ${overlayBottomClass}`}>
             <span className="text-zinc-300">{displayedGraph.communityDetection.communityCount}</span> Leiden communities · <span className="text-zinc-300">{displayedGraph.counts.unclassifiedPages}</span> unclassified · <span className="text-zinc-300">{displayedGraph.counts.unembeddedPages}</span> outline-only
           </div>
-          {generatedAt && <div data-testid="generated-at" className="pointer-events-none absolute bottom-[92px] left-1/2 z-20 hidden -translate-x-1/2 rounded-md bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-500 md:block">Generated {new Date(generatedAt).toLocaleString()}</div>}
-          {timeline && history.frame && <GraphTimelineControls
+          {generatedAt && <div data-testid="generated-at" className={`pointer-events-none absolute left-1/2 z-20 hidden -translate-x-1/2 rounded-md bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-500 md:block ${overlayBottomClass}`}>Generated {new Date(generatedAt).toLocaleString()}</div>}
+          {timelineVisible && timeline && history.frame && <GraphTimelineControls
             frames={history.frames}
             frame={history.frame}
             frameIndex={history.frameIndex}
@@ -163,7 +167,7 @@ export default function App() {
             onTogglePlayback={history.togglePlayback}
             onReturnToNow={history.returnToNow}
           />}
-          {timelineError && <div data-testid="graph-timeline-error" className="pointer-events-none absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-amber-950/90 px-3 py-2 text-[10px] text-amber-200">Memory history unavailable · current graph remains available</div>}
+          {timelineOn && timelineError && <div data-testid="graph-timeline-error" className="pointer-events-none absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-amber-950/90 px-3 py-2 text-[10px] text-amber-200">Memory history unavailable · current graph remains available</div>}
         </>}
       </section>
     </main>

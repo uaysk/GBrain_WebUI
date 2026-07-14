@@ -126,6 +126,7 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await page.waitForTimeout(1500);
   const memoryGraph = page.getByTestId("memory-graph");
   const viewModeToggle = page.getByTestId("view-mode-toggle");
+  const timelineToggle = page.getByTestId("timeline-toggle");
   const timeline = page.getByTestId("graph-timeline");
   const timelineSlider = page.getByTestId("graph-timeline-slider");
   const currentFrameIndex = Number(await timeline.getAttribute("data-frame-index"));
@@ -135,6 +136,17 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   expect(timelineFrameCount).toBeGreaterThan(1);
   expect(currentFrameIndex).toBe(timelineFrameCount - 1);
   expect(staticNodeCount).toBeGreaterThan(0);
+  await expect(timelineToggle).toHaveAttribute("aria-pressed", "true");
+  await timelineToggle.click();
+  await expect(timelineToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(timeline).toHaveCount(0);
+  await expect(memoryGraph).toHaveAttribute("data-history-changed-count", "0");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v2") ?? "null")?.timelineOn)).toBe(false);
+  await page.screenshot({ path: "screenshots/gbrain-memory-map-timeline-off.png" });
+  await timelineToggle.click();
+  await expect(timelineToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(timeline).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v2") ?? "null")?.timelineOn)).toBe(true);
   await timelineSlider.fill("0");
   await expect(timeline).toHaveAttribute("data-frame-index", "0");
   await expect.poll(async () => Number(await timeline.getAttribute("data-visible-node-count"))).toBeGreaterThanOrEqual(staticNodeCount);
@@ -298,6 +310,18 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   const cameraDistance = (left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }) =>
     Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
   const overviewCamera = await cameraPosition();
+  await expect(memoryGraph).toHaveAttribute("data-left-drag-action", "pan");
+  await page.mouse.move(620, 430);
+  await page.mouse.down();
+  await page.mouse.move(760, 500, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => cameraDistance(await cameraPosition(), overviewCamera), { timeout: 2_000 }).toBeGreaterThan(1);
+  const pannedCamera = await cameraPosition();
+  expect(Math.hypot(pannedCamera.x - overviewCamera.x, pannedCamera.y - overviewCamera.y)).toBeGreaterThan(1);
+  expect(Math.abs(pannedCamera.z - overviewCamera.z)).toBeLessThan(1);
+  await page.screenshot({ path: "screenshots/gbrain-memory-map-2d-panned.png" });
+  await page.getByRole("button", { name: "Fit graph" }).click();
+  await expect.poll(async () => cameraDistance(await cameraPosition(), overviewCamera), { timeout: 2_000 }).toBeLessThan(0.75);
   const labelsInsideViewport = await page.locator("[data-group-label]").evaluateAll((elements) => elements.filter((element) => {
     const bounds = element.getBoundingClientRect();
     const style = getComputedStyle(element);

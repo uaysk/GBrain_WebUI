@@ -10,5 +10,5 @@
     "strict": true,
     "types": ["bun"]
   },
-  "include": ["server", "src/types.ts", "src/api", "src/graph/node-billboard.ts", "src/graph/camera.ts", "src/graph/community-label.ts", "src/graph/graph-layers.ts", "src/graph/graph-timeline.ts", "src/graph/halo.ts", "src/graph/selection.ts", "src/graph/visual-spec.ts", "src/graph/layout-2d.ts", "src/graph/rendering.ts", "vite.config.ts", "playwright.config.ts", "tests"]
+  "include": ["server", "src/types.ts", "src/api", "src/graph/node-billboard.ts", "src/graph/camera.ts", "src/graph/community-label.ts", "src/graph/graph-layers.ts", "src/graph/graph-timeline.ts", "src/graph/halo.ts", "src/graph/navigation-controls.ts", "src/graph/selection.ts", "src/graph/visual-spec.ts", "src/graph/layout-2d.ts", "src/graph/rendering.ts", "vite.config.ts", "playwright.config.ts", "tests"]
 }

@@ -8,6 +8,7 @@ const STORAGE_KEY = "gbrain-memory-map:explorer-state:v2";
 export interface GraphExplorerState {
   selectedId: string | null;
   viewMode: "2d" | "3d";
+  timelineOn: boolean;
   communityLabelsOn: boolean;
   semanticOn: boolean;
   explicitOn: boolean;
@@ -18,6 +19,7 @@ export interface GraphExplorerState {
 const defaults: GraphExplorerState = {
   selectedId: null,
   viewMode: "3d",
+  timelineOn: true,
   communityLabelsOn: true,
   semanticOn: true,
   explicitOn: true,
@@ -39,6 +41,7 @@ function loadState(): GraphExplorerState {
       ...value,
       selectedId: typeof value.selectedId === "string" ? value.selectedId : null,
       viewMode: value.viewMode === "2d" ? "2d" : "3d",
+      timelineOn: value.timelineOn !== false,
       semanticThreshold: Number.isFinite(threshold) ? Math.max(-1, Math.min(1, threshold)) : defaults.semanticThreshold,
       explicitFamilies: families,
     };

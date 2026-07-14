@@ -1,14 +1,16 @@
-import { SlidersHorizontal } from "lucide-react";
+import { History, SlidersHorizontal } from "lucide-react";
 import type { RelationFamily } from "../api/types";
 import { EXPLICIT_RELATION_FAMILIES, RELATION_VISUALS } from "../graph/visual-spec";
 import { Button } from "./ui/button";
 
 interface Props {
+  timelineOn: boolean;
   semanticOn: boolean;
   explicitOn: boolean;
   threshold: number;
   minimumThreshold: number;
   explicitFamilies: RelationFamily[];
+  onTimelineOnChange: (value: boolean) => void;
   onSemanticOnChange: (value: boolean) => void;
   onExplicitOnChange: (value: boolean) => void;
   onThresholdChange: (value: number) => void;
@@ -43,6 +45,10 @@ export function LayerControls(props: Props) {
           onClick={() => toggleFamily(family)}
         >{RELATION_VISUALS[family].label.split(" /")[0]}</button>)}
       </div>
+    </div>
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-md bg-black/25 p-1.5 pl-2">
+      <div className="flex min-w-0 items-center gap-2"><History className="size-3.5 shrink-0 text-zinc-500" /><div className="min-w-0"><div className="font-medium text-zinc-200">Memory timeline</div><div className="truncate text-[9px] text-zinc-600">하단 기록 재생 컨트롤</div></div></div>
+      <Button data-testid="timeline-toggle" className="h-7 shrink-0 px-2" variant={props.timelineOn ? "active" : "default"} aria-pressed={props.timelineOn} onClick={() => props.onTimelineOnChange(!props.timelineOn)}>Timeline {props.timelineOn ? "on" : "off"}</Button>
     </div>
   </aside>;
 }
