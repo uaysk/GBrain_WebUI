@@ -48,3 +48,27 @@ export interface CommunityDetectionInfo { engine: "leiden"; resolution: number; 
 export interface GraphResponse { generatedAt: string; nodes: GraphNode[]; explicitEdges: GraphEdge[]; semanticEdges: GraphEdge[]; semanticGroups: SemanticGroup[]; communityDetection: CommunityDetectionInfo; counts: GraphCounts }
 export interface StatusResponse { connected: boolean; lastBuiltAt: string | null; counts: GraphCounts | null; error?: string }
 export interface NodeDetailResponse { id: string; content: string; contentTruncated: boolean; updatedAt: string | null }
+
+export interface GraphTimelineNodeState {
+  at: string;
+  revision: number;
+  sizeScale: number;
+}
+
+export interface GraphTimelineNode {
+  id: string;
+  static: boolean;
+  createdAt: string;
+  states: GraphTimelineNodeState[];
+}
+
+export interface GraphTimelineResponse {
+  graphGeneratedAt: string;
+  startAt: string;
+  endAt: string;
+  versionedNodeCount: number;
+  staticNodeCount: number;
+  stateCount: number;
+  transitionCount: number;
+  nodes: GraphTimelineNode[];
+}

@@ -61,6 +61,7 @@ const server = Bun.serve({
         return json(request, { connected, lastBuiltAt: graph.cached?.generatedAt ?? null, counts: graph.cached?.counts ?? null });
       }
       if (url.pathname === "/api/graph" && request.method === "GET") return json(request, await graph.getGraph());
+      if (url.pathname === "/api/graph/history" && request.method === "GET") return json(request, await graph.getGraphHistory());
       if (url.pathname === "/api/node-detail" && request.method === "GET") {
         const id = url.searchParams.get("id")?.trim();
         if (!id || id.length > 1024) return json(request, { error: "A valid node id is required" }, 400);

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphResponse } from "../src/types";
+import { NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphResponse, type GraphTimelineResponse } from "../src/types";
 import { createMap2DLayout } from "../src/graph/layout-2d";
 import { shapeForType } from "../server/style";
 
@@ -25,6 +25,7 @@ test("live graph snapshot satisfies the MVP data contract", async () => {
   expect(unauthenticated.status).toBe(401);
   expect(JSON.stringify(await unauthenticated.json())).not.toContain("counts");
   expect((await fetch(`${base}/api/node-detail?id=missing`)).status).toBe(401);
+  expect((await fetch(`${base}/api/graph/history`)).status).toBe(401);
   const cookie = await authenticatedCookie();
   const response = await fetch(`${base}/api/graph`, { headers: { Cookie: cookie } });
   expect(response.status).toBe(200);
@@ -82,4 +83,21 @@ test("live graph snapshot satisfies the MVP data contract", async () => {
   expect(typeof detail.contentTruncated).toBe("boolean");
   expect((await fetch(`${base}/api/node-detail`, { headers: { Cookie: cookie } })).status).toBe(400);
   expect((await fetch(`${base}/api/node-detail?id=${encodeURIComponent("default::missing-node")}`, { headers: { Cookie: cookie } })).status).toBe(404);
+  const historyResponse = await fetch(`${base}/api/graph/history`, { headers: { Cookie: cookie } });
+  expect(historyResponse.status).toBe(200);
+  const history = await historyResponse.json() as GraphTimelineResponse;
+  expect(history.graphGeneratedAt).toBe(graph.generatedAt);
+  expect(history.nodes).toHaveLength(graph.nodes.length);
+  expect(history.versionedNodeCount + history.staticNodeCount).toBe(graph.nodes.length);
+  expect(history.versionedNodeCount).toBeGreaterThan(0);
+  expect(history.staticNodeCount).toBeGreaterThan(0);
+  expect(history.stateCount).toBeGreaterThanOrEqual(history.versionedNodeCount);
+  expect(history.transitionCount).toBe(history.stateCount - history.versionedNodeCount);
+  expect(history.nodes.filter((node) => node.static).every((node) => node.states.length === 0)).toBe(true);
+  expect(history.nodes.filter((node) => !node.static).every((node) => node.states.length > 0 && node.states[0]?.at === node.createdAt)).toBe(true);
+  expect(history.nodes.flatMap((node) => node.states).every((state) => state.sizeScale >= 0.72 && state.sizeScale <= 1.18)).toBe(true);
+  const serializedHistory = JSON.stringify(history);
+  expect(serializedHistory).not.toContain("compiled_truth");
+  expect(serializedHistory).not.toContain("content_hash");
+  expect(serializedHistory).not.toContain("frontmatter");
 });

@@ -66,6 +66,14 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await warmupPage.waitForTimeout(900);
   await warmupPage.screenshot({ path: "/tmp/gbrain-playwright-webgl-warmup.png" });
   await warmupContext.close();
+  const degradedContext = await browser.newContext({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
+  const degradedPage = await degradedContext.newPage();
+  await degradedPage.route("**/api/graph/history", (route) => route.abort());
+  await login(degradedPage);
+  await expect(degradedPage.getByTestId("memory-graph")).toBeVisible();
+  await expect(degradedPage.getByTestId("graph-timeline-error")).toBeVisible();
+  await expect(degradedPage.getByTestId("graph-timeline")).toHaveCount(0);
+  await degradedContext.close();
   for (const size of sizes) {
     const context = await browser.newContext({ viewport: size, ignoreHTTPSErrors: true });
     const page = await context.newPage(); observe(page);
@@ -78,6 +86,8 @@ test("captures and validates the requested viewports", async ({ browser }) => {
     await expect(page.getByLabel("Graph legend")).toContainText("Node size = chunks + total connections");
     await expect(page.getByTestId("layer-controls")).toBeVisible();
     await expect(page.getByTestId("generated-at")).toBeVisible();
+    await expect(page.getByTestId("graph-timeline")).toBeVisible();
+    await expect(page.getByTestId("graph-timeline-slider")).toBeVisible();
     await page.waitForTimeout(1800);
     const overflow = await page.evaluate(() => ({ x: document.documentElement.scrollWidth > document.documentElement.clientWidth, y: document.documentElement.scrollHeight > document.documentElement.clientHeight }));
     expect(overflow).toEqual({ x: false, y: false });
@@ -88,6 +98,11 @@ test("captures and validates the requested viewports", async ({ browser }) => {
     expect(panels).toHaveLength(2);
     expect(panels[0]!.right).toBeLessThan(panels[1]!.left);
     expect(panels.every((panel) => panel.left >= 0 && panel.right <= size.width && panel.top >= 0 && panel.bottom <= size.height)).toBe(true);
+    const timelineBounds = await page.getByTestId("graph-timeline").boundingBox();
+    expect(timelineBounds).not.toBeNull();
+    expect(timelineBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(timelineBounds!.x + timelineBounds!.width).toBeLessThanOrEqual(size.width);
+    expect(timelineBounds!.y + timelineBounds!.height).toBeLessThanOrEqual(size.height);
     const chromeSurfaces = await page.locator("main, header, [aria-label='Graph legend'], [aria-label='Graph layers']").evaluateAll((elements) => elements.map((element) => {
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, border: style.borderWidth };
@@ -111,6 +126,32 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await page.waitForTimeout(1500);
   const memoryGraph = page.getByTestId("memory-graph");
   const viewModeToggle = page.getByTestId("view-mode-toggle");
+  const timeline = page.getByTestId("graph-timeline");
+  const timelineSlider = page.getByTestId("graph-timeline-slider");
+  const currentFrameIndex = Number(await timeline.getAttribute("data-frame-index"));
+  const timelineFrameCount = Number(await timeline.getAttribute("data-frame-count"));
+  const currentNodeCount = Number(await timeline.getAttribute("data-visible-node-count"));
+  const staticNodeCount = Number(await timeline.getAttribute("data-static-node-count"));
+  expect(timelineFrameCount).toBeGreaterThan(1);
+  expect(currentFrameIndex).toBe(timelineFrameCount - 1);
+  expect(staticNodeCount).toBeGreaterThan(0);
+  await timelineSlider.fill("0");
+  await expect(timeline).toHaveAttribute("data-frame-index", "0");
+  await expect.poll(async () => Number(await timeline.getAttribute("data-visible-node-count"))).toBeGreaterThanOrEqual(staticNodeCount);
+  expect(Number(await timeline.getAttribute("data-visible-node-count"))).toBeLessThan(currentNodeCount);
+  expect(Number(await memoryGraph.getAttribute("data-history-changed-count"))).toBeGreaterThan(0);
+  await page.waitForTimeout(240);
+  await page.screenshot({ path: "screenshots/gbrain-memory-map-timeline-past.png" });
+  await page.getByRole("button", { name: "타임라인 재생" }).click();
+  await expect(timeline).toHaveAttribute("data-playing", "true");
+  await expect.poll(async () => Number(await timeline.getAttribute("data-frame-index")), { timeout: 3_000 }).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "타임라인 일시정지" }).click();
+  await expect(timeline).toHaveAttribute("data-playing", "false");
+  await page.screenshot({ path: "screenshots/gbrain-memory-map-timeline-playing.png" });
+  await page.getByRole("button", { name: "현재 시점으로 이동" }).click();
+  await expect(timeline).toHaveAttribute("data-frame-index", String(timelineFrameCount - 1));
+  await expect(timeline).toHaveAttribute("data-visible-node-count", String(currentNodeCount));
+  await page.waitForTimeout(320);
   await page.screenshot({ path: "screenshots/gbrain-memory-map-legend-expanded.png" });
   await page.getByTestId("legend-toggle").click();
   await expect(page.getByTestId("legend-toggle")).toHaveAttribute("aria-expanded", "false");
@@ -121,6 +162,7 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await expect(page.getByTestId("legend-toggle")).toHaveAttribute("aria-expanded", "true");
   await expect(memoryGraph).toHaveAttribute("data-view-mode", "3d");
   await expect(memoryGraph).toHaveAttribute("data-view-transitioning", "false");
+  await expect.poll(async () => Number(await memoryGraph.getAttribute("data-scene-depth")), { timeout: 3_000 }).toBeGreaterThan(1);
   expect(Number(await memoryGraph.getAttribute("data-map-depth"))).toBeGreaterThan(1);
   const initialSpatialState = await memoryGraph.evaluate((element) => ({
     coordinateMode: element.dataset.coordinateMode,

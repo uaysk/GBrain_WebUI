@@ -1,7 +1,7 @@
 {
-  "frames": 40,
-  "fps": 36.6,
-  "wallDuration": 1225,
+  "frames": 38,
+  "fps": 34.7,
+  "wallDuration": 1216,
   "externalStalls": 1,
   "directNodes": 191,
   "nodesBatched": "true",

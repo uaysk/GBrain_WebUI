@@ -6,7 +6,7 @@ import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeome
 import { NODE_RADIUS_SCALE, NODE_SELECTED_SCALE, type GraphEdge, type GraphNode } from "../types";
 import { createNodeBillboard } from "./node-billboard";
 
-export function createNodeObject(node: GraphNode, state: { selected: boolean; adjacent: boolean; dimmed: boolean; showLabel: boolean }) {
+export function createNodeObject(node: GraphNode, state: { selected: boolean; adjacent: boolean; dimmed: boolean; showLabel: boolean; historyChanged?: boolean }) {
   const group = new THREE.Group();
   const size = NODE_RADIUS_SCALE * node.size * (state.selected ? NODE_SELECTED_SCALE : 1);
   const billboard = createNodeBillboard(node, state, size * 2);

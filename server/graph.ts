@@ -1,12 +1,13 @@
 import type { Sql } from "postgres";
-import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphCounts, type GraphEdge, type GraphNode, type GraphResponse, type NodeDetailResponse, type SemanticGroup } from "../src/types";
+import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphCounts, type GraphEdge, type GraphNode, type GraphResponse, type GraphTimelineResponse, type NodeDetailResponse, type SemanticGroup } from "../src/types";
 import { detectLeidenCommunities } from "./community";
 import type { Config } from "./config";
 import { parseVector, placeUnclassifiedNearGraph, projectUmap, relaxNodeCollisions, separateSemanticGroups } from "./layout";
 import { assignCurvatures, familyForType, GROUP_COLORS, RELATION_STYLE, shapeForType } from "./style";
 import { createCommunityNames } from "./community-labeling";
+import { buildGraphTimeline, type HistoryPageRow, type HistoryVersionRow } from "./graph-history";
 
-type PageRow = { id: number; source_id: string; slug: string; type: string; title: string; source_name: string; chunk_count: number; tags: string[] | null };
+type PageRow = { id: number; source_id: string; slug: string; type: string; title: string; source_name: string; chunk_count: number; tags: string[] | null; created_at: Date | string; current_content_hash: string; current_content_length: number };
 type VectorRow = { id: number; embedding_text: string };
 type LinkRow = { id: number; from_page_id: number; to_page_id: number; link_type: string; link_source: string | null };
 type SemanticRow = { from_page_id: number; to_page_id: number; similarity: number };
@@ -15,6 +16,8 @@ const MAX_NODE_CONTENT_CHARS = 64_000;
 
 export class GraphService {
   private snapshot: GraphResponse | null = null;
+  private timelineSnapshot: GraphTimelineResponse | null = null;
+  private historyPageSnapshot: HistoryPageRow[] = [];
   private buildPromise: Promise<GraphResponse> | null = null;
   constructor(private sql: Sql, private config: Config) {}
 
@@ -27,6 +30,37 @@ export class GraphService {
 
   async getGraph(): Promise<GraphResponse> {
     return this.snapshot ?? this.rebuild();
+  }
+
+  async getGraphHistory(): Promise<GraphTimelineResponse> {
+    const currentGraph = await this.getGraph();
+    if (this.timelineSnapshot?.graphGeneratedAt === currentGraph.generatedAt) return this.timelineSnapshot;
+    const stableIdByPageId = new Map(currentGraph.nodes.map((node) => [node.dbId, node.id]));
+    const pageIds = [...stableIdByPageId.keys()];
+    if (!pageIds.length) {
+      const empty = buildGraphTimeline(currentGraph.generatedAt, stableIdByPageId, [], []);
+      this.timelineSnapshot = empty;
+      return empty;
+    }
+    const schema = this.config.db.schema;
+    const sources = this.config.allowedSourceIds;
+    const data = await this.sql.begin(async (tx) => {
+      await tx`SET TRANSACTION READ ONLY`;
+      const versions = await tx.unsafe<HistoryVersionRow[]>(`
+        SELECT pv.id, pv.page_id, pv.snapshot_at,
+               md5(COALESCE(pv.compiled_truth, '')) AS content_hash,
+               char_length(COALESCE(pv.compiled_truth, ''))::int AS content_length
+        FROM "${schema}".page_versions pv
+        JOIN "${schema}".pages p ON p.id = pv.page_id
+        WHERE pv.page_id = ANY($1::int[]) AND p.source_id = ANY($2::text[]) AND p.deleted_at IS NULL
+          AND pv.snapshot_at <= $3::timestamptz
+        ORDER BY pv.page_id, pv.snapshot_at, pv.id`, [pageIds, sources, currentGraph.generatedAt]);
+      return versions;
+    });
+    const pages = this.historyPageSnapshot.filter((page) => stableIdByPageId.has(page.id));
+    const timeline = buildGraphTimeline(currentGraph.generatedAt, stableIdByPageId, pages, data);
+    this.timelineSnapshot = timeline;
+    return timeline;
   }
 
   async getNodeDetail(id: string): Promise<NodeDetailResponse | null> {
@@ -54,7 +88,11 @@ export class GraphService {
 
   async rebuild(): Promise<GraphResponse> {
     if (this.buildPromise) return this.buildPromise;
-    this.buildPromise = this.build().then((result) => (this.snapshot = result)).finally(() => { this.buildPromise = null; });
+    this.buildPromise = this.build().then((result) => {
+      this.timelineSnapshot = null;
+      this.snapshot = result;
+      return result;
+    }).finally(() => { this.buildPromise = null; });
     return this.buildPromise;
   }
 
@@ -62,9 +100,12 @@ export class GraphService {
     const schema = this.config.db.schema;
     const sources = this.config.allowedSourceIds;
     const data = await this.sql.begin(async (tx) => {
-      await tx`SET TRANSACTION READ ONLY`;
+      await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+      const generatedAtRows = await tx<{ generated_at: Date | string }[]>`SELECT transaction_timestamp() AS generated_at`;
       const pages = await tx.unsafe<PageRow[]>(`
-        SELECT p.id, p.source_id, p.slug, p.type, p.title,
+        SELECT p.id, p.source_id, p.slug, p.type, p.title, p.created_at,
+               md5(COALESCE(p.compiled_truth, '')) AS current_content_hash,
+               char_length(COALESCE(p.compiled_truth, ''))::int AS current_content_length,
                COALESCE(s.name, p.source_id) AS source_name,
                COUNT(DISTINCT c.id)::int AS chunk_count,
                COALESCE(array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL), '{}') AS tags
@@ -123,7 +164,7 @@ export class GraphService {
         )
         SELECT from_page_id, to_page_id, similarity::float8 AS similarity
         FROM ranked WHERE rank <= 2 ORDER BY from_page_id, rank`, [sources]);
-      return { pages, vectors, links, semantic };
+      return { pages, vectors, links, semantic, generatedAt: generatedAtRows[0]!.generated_at };
     });
 
     const stableByDbId = new Map(data.pages.map((p) => [p.id, `${p.source_id}::${p.slug}`]));
@@ -216,8 +257,15 @@ export class GraphService {
       embeddedPages: embeddedPages.length, unembeddedPages: unembedded.length, unclassifiedPages: community.isolatedCount,
       embeddingCoverage: nodes.length ? embeddedPages.length / nodes.length : 0,
     };
+    const generatedAt = data.generatedAt instanceof Date ? data.generatedAt.toISOString() : new Date(data.generatedAt).toISOString();
+    this.historyPageSnapshot = data.pages.map((page) => ({
+      id: page.id,
+      created_at: page.created_at,
+      current_content_hash: page.current_content_hash,
+      current_content_length: page.current_content_length,
+    }));
     return {
-      generatedAt: new Date().toISOString(), nodes, explicitEdges, semanticEdges, semanticGroups,
+      generatedAt, nodes, explicitEdges, semanticEdges, semanticGroups,
       communityDetection: {
         engine: "leiden", resolution: community.resolution, modularity: community.modularity,
         communityCount: community.communityCount, weightedEdgeCount: community.weightedEdgeCount,

@@ -5,6 +5,7 @@ export interface BillboardState {
   selected: boolean;
   adjacent: boolean;
   dimmed: boolean;
+  historyChanged?: boolean;
 }
 
 const POLYGON_SIDES: Partial<Record<NodeShape, number>> = {
@@ -54,7 +55,7 @@ function traceShape(context: CanvasRenderingContext2D, shape: NodeShape, radius:
 
 function createBillboardTexture(node: GraphNode, state: BillboardState): THREE.CanvasTexture {
   const emphasis = state.selected ? "selected" : state.adjacent ? "adjacent" : "default";
-  const cacheKey = [node.shape, node.color, node.hasEmbedding ? "filled" : "outline", emphasis].join("|");
+  const cacheKey = [node.shape, node.color, node.hasEmbedding ? "filled" : "outline", emphasis, state.historyChanged ? "changed" : "steady"].join("|");
   const cached = textureCache.get(cacheKey);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
@@ -67,6 +68,12 @@ function createBillboardTexture(node: GraphNode, state: BillboardState): THREE.C
   context.lineCap = "round";
 
   const radius = 58;
+  if (state.historyChanged) {
+    traceShape(context, node.shape, 69);
+    context.strokeStyle = "rgba(34,211,238,0.92)";
+    context.lineWidth = 6;
+    context.stroke();
+  }
   traceShape(context, node.shape, radius);
   if (state.selected || state.adjacent) {
     context.strokeStyle = state.selected ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.46)";

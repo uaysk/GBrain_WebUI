@@ -32,7 +32,7 @@ export function NodeContextPanel({ node, detailState, relatedNodes, onSelectNode
 
   return <><aside
     data-testid="node-context-panel"
-    className="pointer-events-auto flex h-[calc(100dvh-250px)] min-h-[320px] max-h-[750px] w-full flex-col overflow-hidden rounded-lg bg-zinc-900/95 text-[10px] text-zinc-300 backdrop-blur-sm"
+    className="pointer-events-auto flex h-[calc(100dvh-340px)] min-h-[250px] max-h-[670px] w-full flex-col overflow-hidden rounded-lg bg-zinc-900/95 text-[10px] text-zinc-300 backdrop-blur-sm"
     aria-label="Selected node context"
   >
     <div data-testid="selected-summary" className="shrink-0 px-3 py-2.5" aria-label="Selected node">

@@ -20,13 +20,14 @@ interface Props {
   labelsOn: boolean;
   layers: GraphLayerSettings;
   selectedId: string | null;
+  changedNodeIds?: ReadonlySet<string>;
   onSelect: (id: string | null) => void;
   onCommunityFocus: (id: string | null) => void;
 }
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 
-export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph({ graph, viewMode, labelsOn, layers, selectedId, onSelect, onCommunityFocus }, ref) {
+export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph({ graph, viewMode, labelsOn, layers, selectedId, changedNodeIds, onSelect, onCommunityFocus }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const labelLayerRef = useRef<HTMLDivElement>(null);
   const haloRootRef = useRef<THREE.Group | null>(null);
@@ -79,8 +80,9 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       adjacent,
       dimmed: Boolean(selectedId && !neighbors.has(node.id)),
       showLabel: false,
+      historyChanged: changedNodeIds?.has(node.id),
     });
-  }, [neighbors, selectedId]);
+  }, [changedNodeIds, neighbors, selectedId]);
   const renderNodeTooltip = useCallback((raw: object) => {
     const node = raw as GraphNode;
     const community = node.isUnclassified
@@ -778,11 +780,15 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       }
       graphRef.current?.cameraPosition(cameraPosition, { x: 0, y: 0, z: 0 }, 0);
       controls?.update?.();
-      settleTimer = window.setTimeout(() => {
+      let settleAttempts = 0;
+      const settleScene = () => {
         syncHaloTransforms();
         positionCommunityLabels();
         updateSceneDiagnostics();
-      }, 80);
+        settleAttempts += 1;
+        if (settleAttempts < 3) settleTimer = window.setTimeout(settleScene, 260);
+      };
+      settleTimer = window.setTimeout(settleScene, 80);
       if (nodeObjectById.size < renderNodes.length) graphRef.current?.refresh?.();
     };
 
@@ -838,6 +844,7 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
       data-active-edge-count={activeEdges.length}
       data-active-neighbor-count={neighbors.size}
       data-selected-id={selectedId ?? ""}
+      data-history-changed-count={changedNodeIds?.size ?? 0}
       data-direction-arrows="false"
       data-focused-community=""
       data-focused-community-member-count="0"

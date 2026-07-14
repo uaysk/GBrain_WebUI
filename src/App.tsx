@@ -4,14 +4,17 @@ import { Legend } from "./components/Legend";
 import { LayerControls } from "./components/LayerControls";
 import { CommunityNodeList } from "./components/CommunityNodeList";
 import { NodeContextPanel } from "./components/NodeContextPanel";
+import { GraphTimelineControls } from "./components/GraphTimelineControls";
 import { Button } from "./components/ui/button";
 import { Tooltip } from "./components/ui/tooltip";
 import { MemoryGraph, type GraphControls } from "./graph/MemoryGraph";
-import type { GraphResponse, StatusResponse } from "./types";
+import type { GraphResponse, GraphTimelineResponse, StatusResponse } from "./types";
 import { activeGraphEdges, relatedNodesForNode } from "./graph/graph-layers";
+import { projectGraphAtFrame } from "./graph/graph-timeline";
 import { nodesInCommunityHalo } from "./graph/halo";
 import { useGraphExplorerState } from "./hooks/useGraphExplorerState";
 import { useNodeDetail } from "./hooks/useNodeDetail";
+import { useGraphTimeline } from "./hooks/useGraphTimeline";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -26,19 +29,33 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 export default function App() {
   const controls = useRef<GraphControls>(null);
   const [graph, setGraph] = useState<GraphResponse | null>(null);
+  const [timeline, setTimeline] = useState<GraphTimelineResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [timelineError, setTimelineError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [focusedCommunityId, setFocusedCommunityId] = useState<string | null>(null);
   const { state, patchState } = useGraphExplorerState(graph);
   const { selectedId, viewMode, communityLabelsOn, semanticOn, explicitOn, semanticThreshold, explicitFamilies } = state;
+  const history = useGraphTimeline(timeline);
 
   const load = useCallback(async () => {
     setError(null);
+    setTimelineError(false);
+    const historyRequest = json<GraphTimelineResponse>("/api/graph/history").then(
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const }),
+    );
     try {
-      const [nextStatus, nextGraph] = await Promise.all([json<StatusResponse>("/api/status"), json<GraphResponse>("/api/graph")]);
-      setStatus(nextStatus); setGraph(nextGraph);
+      const [nextStatus, nextGraph] = await Promise.all([
+        json<StatusResponse>("/api/status"),
+        json<GraphResponse>("/api/graph"),
+      ]);
+      setStatus(nextStatus); setGraph(nextGraph); setLoading(false);
+      const historyResult = await historyRequest;
+      if (historyResult.ok && historyResult.value.graphGeneratedAt === nextGraph.generatedAt) setTimeline(historyResult.value);
+      else { setTimeline(null); setTimelineError(true); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "데이터를 불러올 수 없습니다."); }
     finally { setLoading(false); }
   }, []);
@@ -49,26 +66,38 @@ export default function App() {
   }, [graph?.communityDetection.minSemanticSimilarity, patchState, semanticThreshold]);
 
   const rebuild = async () => {
-    setRefreshing(true); setError(null);
+    setRefreshing(true); setError(null); setTimelineError(false);
     try {
       const next = await json<GraphResponse>("/api/graph/rebuild", { method: "POST" });
       setGraph(next);
-      setStatus(await json<StatusResponse>("/api/status"));
+      const [statusResult, historyResult] = await Promise.allSettled([
+        json<StatusResponse>("/api/status"),
+        json<GraphTimelineResponse>("/api/graph/history"),
+      ]);
+      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+      else setStatus({ connected: false, lastBuiltAt: next.generatedAt, counts: next.counts });
+      if (historyResult.status === "fulfilled" && historyResult.value.graphGeneratedAt === next.generatedAt) setTimeline(historyResult.value);
+      else { setTimeline(null); setTimelineError(true); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "새로고침에 실패했습니다."); }
     finally { setRefreshing(false); }
   };
-  const counts = graph?.counts ?? status?.counts;
+  const timelineProjection = useMemo(() => graph && timeline && history.frame
+    ? projectGraphAtFrame(graph, timeline, history.frame)
+    : null, [graph, history.frame, timeline]);
+  const displayedGraph = timelineProjection?.graph ?? graph;
+  const counts = displayedGraph?.counts ?? status?.counts;
   const layers = useMemo(() => ({ semanticOn, explicitOn, minSemanticSimilarity: semanticThreshold, explicitFamilies }), [explicitFamilies, explicitOn, semanticOn, semanticThreshold]);
-  const activeEdges = useMemo(() => graph ? activeGraphEdges(graph, layers) : [], [graph, layers]);
-  const selectedNode = graph?.nodes.find((node) => node.id === selectedId) ?? null;
-  const selectedRelatedNodes = useMemo(() => graph && selectedId
-    ? relatedNodesForNode(selectedId, graph.nodes, activeEdges)
-    : [], [activeEdges, graph, selectedId]);
-  const nodeDetailState = useNodeDetail(selectedId, graph?.generatedAt);
-  const focusedCommunity = graph?.semanticGroups.find((group) => group.id === focusedCommunityId) ?? null;
-  const focusedCommunityNodes = useMemo(() => graph && focusedCommunityId
-    ? nodesInCommunityHalo(graph.nodes, focusedCommunityId)
-    : [], [focusedCommunityId, graph]);
+  const effectiveSelectedId = displayedGraph?.nodes.some((node) => node.id === selectedId) ? selectedId : null;
+  const activeEdges = useMemo(() => displayedGraph ? activeGraphEdges(displayedGraph, layers) : [], [displayedGraph, layers]);
+  const selectedNode = displayedGraph?.nodes.find((node) => node.id === effectiveSelectedId) ?? null;
+  const selectedRelatedNodes = useMemo(() => displayedGraph && effectiveSelectedId
+    ? relatedNodesForNode(effectiveSelectedId, displayedGraph.nodes, activeEdges)
+    : [], [activeEdges, displayedGraph, effectiveSelectedId]);
+  const nodeDetailState = useNodeDetail(effectiveSelectedId, graph?.generatedAt);
+  const focusedCommunity = displayedGraph?.semanticGroups.find((group) => group.id === focusedCommunityId) ?? null;
+  const focusedCommunityNodes = useMemo(() => displayedGraph && focusedCommunityId
+    ? nodesInCommunityHalo(displayedGraph.nodes, focusedCommunityId)
+    : [], [focusedCommunityId, displayedGraph]);
   const dbState = loading ? "connecting" : error || status?.connected === false ? "failed" : status?.connected ? "connected" : "connecting";
   const generatedAt = graph?.generatedAt ?? status?.lastBuiltAt;
   const selectNode = useCallback((id: string | null) => {
@@ -103,10 +132,10 @@ export default function App() {
       <section className="relative min-h-0 flex-1 overflow-hidden">
         {loading && <div className="absolute inset-0 z-30 grid place-items-center bg-[#080808]"><div className="flex items-center gap-3 text-sm text-zinc-400"><RefreshCw className="size-4 animate-spin" />UMAP · Leiden graph를 생성하는 중…</div></div>}
         {error && <div className="absolute left-1/2 top-5 z-40 -translate-x-1/2 rounded-md bg-red-950 px-4 py-2 text-xs text-red-200">{error}</div>}
-        {graph && <><MemoryGraph ref={controls} graph={graph} viewMode={viewMode} labelsOn={communityLabelsOn} layers={layers} selectedId={selectedId} onSelect={selectNode} onCommunityFocus={setFocusedCommunityId} /><Legend />
-          <div className="pointer-events-none absolute right-3 top-3 z-30 flex w-[min(310px,calc(100vw-24px))] flex-col gap-2">
+        {graph && displayedGraph && <><MemoryGraph ref={controls} graph={displayedGraph} viewMode={viewMode} labelsOn={communityLabelsOn} layers={layers} selectedId={effectiveSelectedId} changedNodeIds={timelineProjection?.changedNodeIds} onSelect={selectNode} onCommunityFocus={setFocusedCommunityId} /><Legend />
+          <div className="pointer-events-none absolute bottom-[92px] right-3 top-3 z-30 flex w-[min(310px,calc(100vw-24px))] flex-col gap-2">
             <LayerControls
-              semanticOn={semanticOn} explicitOn={explicitOn} threshold={semanticThreshold} minimumThreshold={graph.communityDetection.minSemanticSimilarity}
+              semanticOn={semanticOn} explicitOn={explicitOn} threshold={semanticThreshold} minimumThreshold={displayedGraph.communityDetection.minSemanticSimilarity}
               explicitFamilies={explicitFamilies}
               onSemanticOnChange={(value) => patchState({ semanticOn: value })}
               onExplicitOnChange={(value) => patchState({ explicitOn: value })}
@@ -117,10 +146,24 @@ export default function App() {
               ? <NodeContextPanel node={selectedNode} detailState={nodeDetailState} relatedNodes={selectedRelatedNodes} onSelectNode={selectNode} onClose={() => selectNode(null)} />
               : focusedCommunity && <CommunityNodeList group={focusedCommunity} nodes={focusedCommunityNodes} onSelectNode={selectNode} />}
           </div>
-          <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-md bg-zinc-900/85 px-3 py-2 text-[10px] text-zinc-500">
-            <span className="text-zinc-300">{graph.communityDetection.communityCount}</span> Leiden communities · <span className="text-zinc-300">{graph.counts.unclassifiedPages}</span> unclassified · <span className="text-zinc-300">{graph.counts.unembeddedPages}</span> outline-only
+          <div className="pointer-events-none absolute bottom-[92px] left-3 z-10 rounded-md bg-zinc-900/85 px-3 py-2 text-[10px] text-zinc-500">
+            <span className="text-zinc-300">{displayedGraph.communityDetection.communityCount}</span> Leiden communities · <span className="text-zinc-300">{displayedGraph.counts.unclassifiedPages}</span> unclassified · <span className="text-zinc-300">{displayedGraph.counts.unembeddedPages}</span> outline-only
           </div>
-          {generatedAt && <div data-testid="generated-at" className="pointer-events-none absolute bottom-3 left-1/2 z-20 hidden -translate-x-1/2 rounded-md bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-500 md:block">Generated {new Date(generatedAt).toLocaleString()}</div>}
+          {generatedAt && <div data-testid="generated-at" className="pointer-events-none absolute bottom-[92px] left-1/2 z-20 hidden -translate-x-1/2 rounded-md bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-500 md:block">Generated {new Date(generatedAt).toLocaleString()}</div>}
+          {timeline && history.frame && <GraphTimelineControls
+            frames={history.frames}
+            frame={history.frame}
+            frameIndex={history.frameIndex}
+            playing={history.playing}
+            historical={history.historical}
+            visibleNodeCount={displayedGraph.nodes.length}
+            totalNodeCount={graph.nodes.length}
+            staticNodeCount={timeline.staticNodeCount}
+            onSeek={history.seek}
+            onTogglePlayback={history.togglePlayback}
+            onReturnToNow={history.returnToNow}
+          />}
+          {timelineError && <div data-testid="graph-timeline-error" className="pointer-events-none absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-amber-950/90 px-3 py-2 text-[10px] text-amber-200">Memory history unavailable · current graph remains available</div>}
         </>}
       </section>
     </main>
