@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "types": ["bun"]
+  },
+  "include": ["server", "src/types.ts", "src/graph/node-billboard.ts", "src/graph/community-label.ts", "src/graph/layout-2d.ts", "src/graph/rendering.ts", "vite.config.ts", "playwright.config.ts", "tests"]
+}

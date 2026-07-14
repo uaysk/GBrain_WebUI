@@ -1,0 +1,19 @@
+{
+  "frames": 44,
+  "fps": 41.6,
+  "wallDuration": 1181,
+  "externalStalls": 1,
+  "directNodes": 187,
+  "nodesBatched": "true",
+  "semanticBatched": "true",
+  "halosBatched": "true",
+  "explicitBatched": "true",
+  "coordinateMode": "2d",
+  "sceneDepth": 0,
+  "sceneNodeCount": 187,
+  "sceneNodePositionError": 0,
+  "haloCenterError": 0,
+  "haloContainmentError": 0,
+  "cameraX": 0,
+  "cameraY": 0
+}

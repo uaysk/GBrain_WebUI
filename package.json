@@ -1,0 +1,43 @@
+{
+  "name": "gbrain-3d-memory-map",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --parallel dev:api dev:web",
+    "dev:api": "bun --watch server/index.ts",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "start": "NODE_ENV=production bun server/index.ts",
+    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
+    "test:smoke": "bun test tests/smoke.test.ts",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@aflsolutions/graphology-communities-leiden": "1.1.1",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/vite": "^4.1.14",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "graphology": "0.26.0",
+    "lucide-react": "^0.468.0",
+    "postgres": "^3.4.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-force-graph-3d": "^1.29.0",
+    "tailwind-merge": "^3.3.1",
+    "three": "^0.180.0",
+    "three-spritetext": "^1.10.0",
+    "umap-js": "^1.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/bun": "latest",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  }
+}
