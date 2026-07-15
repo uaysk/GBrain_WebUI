@@ -5,6 +5,8 @@ dist/
 playwright-report/
 test-results/
 screenshots/*.png
-!screenshots/gbrain-memory-map-1440x1000.png
+!screenshots/gbrain-demo-memory-map.png
+!screenshots/gbrain-demo-memory-map-2d.png
+!screenshots/gbrain-demo-memory-map-focus.png
 *.log
 *.tsbuildinfo

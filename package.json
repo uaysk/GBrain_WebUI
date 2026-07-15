@@ -8,9 +8,10 @@
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production bun server/index.ts",
-    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
+    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/demo-memory.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
     "test:smoke": "bun test tests/smoke.test.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "capture:readme-demo": "playwright test --config=playwright.demo.config.ts"
   },
   "dependencies": {
     "@aflsolutions/graphology-communities-leiden": "1.1.1",

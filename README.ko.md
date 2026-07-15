@@ -2,6 +2,10 @@
 
 [English](README.md) | **한국어**
 
+![합성 데모 그래프, 커뮤니티 halo와 관계선을 표시하는 GBrain 3D Memory Map](screenshots/gbrain-demo-memory-map.png)
+
+이 이미지는 재현 가능한 [`demo/gbrain-demo-memory.ts`](demo/gbrain-demo-memory.ts) 합성 메모리를 사용합니다. 사용자 메모리, 운영 metadata, credential, infrastructure identifier는 포함하지 않습니다.
+
 로컬 GBrain PostgreSQL·pgvector의 page를 읽기 전용 semantic map으로 보여주는 단일 화면 웹 앱입니다. 기본 3D map과 충돌 없는 전용 2D map을 전환할 수 있습니다. 브라우저는 Bun API만 호출하며 DB 자격 증명, 원본 embedding, 전체 본문은 받지 않습니다.
 
 ## 구성
@@ -201,13 +205,11 @@ APP_AUTH_PASSWORD='<configured-password>' PLAYWRIGHT_BASE_URL=http://127.0.0.1:3
 
 실DB smoke test는 node/page 수, embedded/unembedded 분리, stable ID, semantic top-2, explicit edge 보존과 API의 민감 필드 미포함을 검사합니다. Playwright는 1440×1000, 1920×1200, 2560×1600에서 console error, failed request, 가로·세로 overflow를 검사하며 스크린샷과 분리한 순수 morph의 FPS를 `screenshots/morph-performance.json`에 기록합니다. 또한 React 좌표가 아니라 실제 Three.js scene node의 Z 깊이, node 좌표 오차, halo 중심·포함 범위 오차와 camera 축을 3D→2D→3D 전체 구간에서 검사합니다.
 
-검토한 결과 이미지는 다음과 같습니다.
+README 데모 이미지는 실제 WebGL UI에 합성 fixture를 주입해 생성합니다. `bun run capture:readme-demo`로 다시 만들 수 있습니다.
 
-- [1440×1000](screenshots/gbrain-memory-map-1440x1000.png)
-- [1920×1200](screenshots/gbrain-memory-map-1920x1200.png)
-- [2560×1600](screenshots/gbrain-memory-map-2560x1600.png)
-- [3D→2D morph](screenshots/gbrain-memory-map-3d-to-2d-morph.png)
-- [2D final](screenshots/gbrain-memory-map-2d.png)
+- [합성 3D overview](screenshots/gbrain-demo-memory-map.png)
+- [합성 2D map](screenshots/gbrain-demo-memory-map-2d.png)
+- [합성 node focus](screenshots/gbrain-demo-memory-map-focus.png)
 
 ## 알려진 제한
 

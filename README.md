@@ -2,7 +2,9 @@
 
 [한국어 문서](README.ko.md) | **English**
 
-![GBrain 3D Memory Map showing the live semantic graph, community halos, and relation lines](screenshots/gbrain-memory-map-1440x1000.png)
+![GBrain 3D Memory Map showing a synthetic demo graph, community halos, and relation lines](screenshots/gbrain-demo-memory-map.png)
+
+The screenshot uses the reproducible synthetic memory in [`demo/gbrain-demo-memory.ts`](demo/gbrain-demo-memory.ts). It contains no user memory, production metadata, credentials, or infrastructure identifiers.
 
 A focused, read-only web app that visualizes pages from a local GBrain PostgreSQL/pgvector database as a semantic memory map. It supports switching between a 3D map and a dedicated, collision-aware 2D map. The browser communicates only with the Bun API and never receives database credentials, raw embeddings, or full page content.
 
@@ -207,13 +209,11 @@ APP_AUTH_PASSWORD='<configured-password>' PLAYWRIGHT_BASE_URL=http://127.0.0.1:3
 
 The real-database smoke test verifies node/page counts, embedded and unembedded separation, stable IDs, semantic top-two edges, explicit-edge preservation, and the absence of sensitive fields in API responses. Playwright checks console errors, failed requests, and horizontal or vertical overflow at 1440×1000, 1920×1200, and 2560×1600, then writes screenshots and isolated morph FPS results to `screenshots/morph-performance.json`. It also validates the actual Three.js scene rather than only React coordinates: scene-node Z depth, node coordinate error, halo center and containment errors, and camera axes across the complete 3D→2D→3D cycle.
 
-Locally reviewed screenshots:
+README demo screenshots are rendered by the real WebGL UI with the synthetic fixture. Regenerate them with `bun run capture:readme-demo`.
 
-- [1440×1000](screenshots/gbrain-memory-map-1440x1000.png)
-- [1920×1200](screenshots/gbrain-memory-map-1920x1200.png)
-- [2560×1600](screenshots/gbrain-memory-map-2560x1600.png)
-- [3D→2D morph](screenshots/gbrain-memory-map-3d-to-2d-morph.png)
-- [Final 2D map](screenshots/gbrain-memory-map-2d.png)
+- [Synthetic 3D overview](screenshots/gbrain-demo-memory-map.png)
+- [Synthetic 2D map](screenshots/gbrain-demo-memory-map-2d.png)
+- [Synthetic node focus](screenshots/gbrain-demo-memory-map-focus.png)
 
 ## Known limitations
 
