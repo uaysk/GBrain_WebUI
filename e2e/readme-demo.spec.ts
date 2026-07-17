@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEMO_SELECTED_NODE_ID,
   demoGraph,
@@ -31,7 +34,7 @@ async function setExplorerState(page: Page, viewMode: "2d" | "3d", selectedId: s
     localStorage.setItem(key, JSON.stringify({
       selectedId: selected,
       viewMode: mode,
-      timelineOn: true,
+      timelineOn: false,
       communityLabelsOn: true,
       semanticOn: true,
       explicitOn: true,
@@ -49,13 +52,40 @@ async function waitForGraph(page: Page, viewMode: "2d" | "3d") {
   await page.waitForTimeout(1_350);
   await expect(graph).toHaveAttribute("data-view-transitioning", "false");
   await expect(page.getByTestId("db-status")).toContainText("DB connected");
-  await expect(page.getByTestId("graph-timeline")).toBeVisible();
+  await expect(page.getByTestId("timeline-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("graph-timeline")).toHaveCount(0);
   return graph;
+}
+
+async function captureFrame(page: Page, framesDirectory: string, frame: number) {
+  await page.screenshot({ path: join(framesDirectory, `frame-${String(frame).padStart(4, "0")}.png`) });
+  return frame + 1;
+}
+
+async function captureRepeatedFrames(page: Page, framesDirectory: string, startFrame: number, count: number) {
+  let frame = startFrame;
+  for (let index = 0; index < count; index += 1) frame = await captureFrame(page, framesDirectory, frame);
+  return frame;
+}
+
+function renderGif(framesDirectory: string) {
+  const outputPath = "screenshots/gbrain-demo-memory-map.gif";
+  const result = spawnSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-framerate", "12",
+    "-i", join(framesDirectory, "frame-%04d.png"),
+    "-filter_complex",
+    "fps=12,split[gif][palette];[palette]palettegen=max_colors=256:stats_mode=diff[p];[gif][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
+    "-loop", "0",
+    outputPath,
+  ], { encoding: "utf8" });
+  expect(result.status, result.stderr).toBe(0);
 }
 
 test("captures README images from synthetic GBrain memory", async ({ page }) => {
   test.setTimeout(90_000);
   mkdirSync("screenshots", { recursive: true });
+  const framesDirectory = mkdtempSync(join(tmpdir(), "gbrain-readme-demo-"));
   await mockDemoApi(page);
   await page.goto("/", { waitUntil: "networkidle" });
 
@@ -66,7 +96,34 @@ test("captures README images from synthetic GBrain memory", async ({ page }) => 
   await page.waitForTimeout(500);
   await page.mouse.move(780, 28);
   await expect(graph3D).toHaveAttribute("data-selected-id", "");
+  await expect.poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.timelineOn, EXPLORER_STORAGE_KEY)).toBe(false);
   await page.screenshot({ path: "screenshots/gbrain-demo-memory-map.png" });
+
+  let frame = await captureRepeatedFrames(page, framesDirectory, 0, 8);
+  await page.mouse.move(500, 540);
+  await page.mouse.down();
+  for (let step = 1; step <= 30; step += 1) {
+    const progress = step / 30;
+    await page.mouse.move(500 + 360 * progress, 540 - 100 * Math.sin(progress * Math.PI));
+    frame = await captureFrame(page, framesDirectory, frame);
+  }
+  await page.mouse.up();
+  frame = await captureRepeatedFrames(page, framesDirectory, frame, 6);
+
+  await page.getByTestId("view-mode-toggle").click();
+  await expect(graph3D).toHaveAttribute("data-view-mode", "2d");
+  do {
+    frame = await captureFrame(page, framesDirectory, frame);
+  } while (await graph3D.getAttribute("data-view-transitioning") === "true");
+  await expect(graph3D).toHaveAttribute("data-coordinate-mode", "2d");
+  await expect(graph3D).toHaveAttribute("data-left-drag-action", "pan");
+  await expect(page.getByTestId("graph-timeline")).toHaveCount(0);
+  await page.getByRole("button", { name: "Fit graph" }).click();
+  await page.waitForTimeout(520);
+  frame = await captureRepeatedFrames(page, framesDirectory, frame, 12);
+  expect(frame).toBeGreaterThan(50);
+  renderGif(framesDirectory);
+  rmSync(framesDirectory, { recursive: true });
 
   await setExplorerState(page, "2d", null);
   await page.reload({ waitUntil: "networkidle" });
