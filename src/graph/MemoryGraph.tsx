@@ -248,11 +248,17 @@ export const MemoryGraph = forwardRef<GraphControls, Props>(function MemoryGraph
     const controls = graphRef.current?.controls?.();
     const update = () => {
       const camera = graphRef.current?.camera?.() as THREE.Camera | undefined;
+      const target = controls?.target as THREE.Vector3 | undefined;
       const container = containerRef.current;
       if (!camera || !container) return;
       container.dataset.cameraX = camera.position.x.toFixed(3);
       container.dataset.cameraY = camera.position.y.toFixed(3);
       container.dataset.cameraZ = camera.position.z.toFixed(3);
+      if (target) {
+        container.dataset.cameraTargetX = target.x.toFixed(3);
+        container.dataset.cameraTargetY = target.y.toFixed(3);
+        container.dataset.cameraTargetZ = target.z.toFixed(3);
+      }
     };
     controls?.addEventListener?.("change", update);
     update();

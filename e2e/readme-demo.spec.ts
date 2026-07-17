@@ -12,6 +12,7 @@ import {
 } from "../demo/gbrain-demo-memory";
 
 const EXPLORER_STORAGE_KEY = "gbrain-memory-map:explorer-state:v2";
+const DEMO_ROTATION_PIXELS = 128;
 
 async function mockDemoApi(page: Page) {
   await page.route("**/api/**", async (route) => {
@@ -82,6 +83,14 @@ function renderGif(framesDirectory: string) {
   expect(result.status, result.stderr).toBe(0);
 }
 
+function cameraAzimuthDegrees(camera: { x: number; z: number; targetX: number; targetZ: number }) {
+  return Math.atan2(camera.x - camera.targetX, camera.z - camera.targetZ) * 180 / Math.PI;
+}
+
+function angularDifferenceDegrees(from: number, to: number) {
+  return Math.abs(((to - from + 540) % 360) - 180);
+}
+
 test("captures README images from synthetic GBrain memory", async ({ page }) => {
   test.setTimeout(90_000);
   mkdirSync("screenshots", { recursive: true });
@@ -100,15 +109,43 @@ test("captures README images from synthetic GBrain memory", async ({ page }) => 
   await page.screenshot({ path: "screenshots/gbrain-demo-memory-map.png" });
 
   let frame = await captureRepeatedFrames(page, framesDirectory, 0, 8);
-  await page.mouse.move(500, 540);
+  const cameraBeforeRotation = await graph3D.evaluate((element) => ({
+    x: Number(element.dataset.cameraX),
+    z: Number(element.dataset.cameraZ),
+    targetX: Number(element.dataset.cameraTargetX),
+    targetZ: Number(element.dataset.cameraTargetZ),
+  }));
+  await page.mouse.move(250, 900);
   await page.mouse.down();
   for (let step = 1; step <= 30; step += 1) {
-    const progress = step / 30;
-    await page.mouse.move(500 + 360 * progress, 540 - 100 * Math.sin(progress * Math.PI));
+    await page.mouse.move(250 + DEMO_ROTATION_PIXELS * step / 30, 900);
     frame = await captureFrame(page, framesDirectory, frame);
   }
   await page.mouse.up();
   frame = await captureRepeatedFrames(page, framesDirectory, frame, 6);
+  let rotationDegrees = 0;
+  for (let correction = 0; correction < 40; correction += 1) {
+    const cameraAfterRotation = await graph3D.evaluate((element) => ({
+      x: Number(element.dataset.cameraX),
+      z: Number(element.dataset.cameraZ),
+      targetX: Number(element.dataset.cameraTargetX),
+      targetZ: Number(element.dataset.cameraTargetZ),
+    }));
+    rotationDegrees = angularDifferenceDegrees(
+      cameraAzimuthDegrees(cameraBeforeRotation),
+      cameraAzimuthDegrees(cameraAfterRotation),
+    );
+    if (rotationDegrees >= 65 && rotationDegrees <= 75) break;
+    const direction = rotationDegrees < 65 ? 1 : -1;
+    const correctionPixels = Math.max(2, Math.min(24, Math.abs(70 - rotationDegrees) * 0.5));
+    await page.mouse.move(250, 900);
+    await page.mouse.down();
+    await page.mouse.move(250 + direction * correctionPixels, 900);
+    await page.mouse.up();
+    frame = await captureFrame(page, framesDirectory, frame);
+  }
+  expect(rotationDegrees).toBeGreaterThanOrEqual(65);
+  expect(rotationDegrees).toBeLessThanOrEqual(75);
 
   await page.getByTestId("view-mode-toggle").click();
   await expect(graph3D).toHaveAttribute("data-view-mode", "2d");
