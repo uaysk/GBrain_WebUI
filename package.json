@@ -8,15 +8,18 @@
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production bun server/index.ts",
-    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/demo-memory.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/rendering.test.ts tests/style.test.ts",
+    "test": "bun test tests/auth.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/control-actions.test.ts tests/control-center.test.ts tests/control-experience.test.ts tests/control-insights.test.ts tests/control-ui-state.test.ts tests/demo-memory.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/rebuild-resilience.test.ts tests/rendering.test.ts tests/style.test.ts",
     "test:smoke": "bun test tests/smoke.test.ts",
     "test:e2e": "playwright test",
+    "verify:control-deployment": "playwright test e2e/control-center-live.spec.ts",
+    "benchmark:semantic": "bun scripts/semantic-candidate-benchmark.ts",
+    "deploy:control": "bash scripts/deploy-control-center.sh",
     "capture:readme-demo": "playwright test --config=playwright.demo.config.ts"
   },
   "dependencies": {
     "@aflsolutions/graphology-communities-leiden": "1.1.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@tailwindcss/vite": "^4.1.14",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "graphology": "0.26.0",
@@ -34,13 +37,19 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",
+    "@tailwindcss/vite": "^4.1.14",
     "@types/bun": "latest",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "postcss": "8.5.18",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11",
+    "postcss": "8.5.18"
   }
 }

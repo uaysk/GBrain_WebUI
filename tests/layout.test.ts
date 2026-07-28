@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { placeUnclassifiedNearGraph, relaxNodeCollisions, separateSemanticGroups } from "../server/layout";
+import { placeUnclassifiedNearGraph, projectPackedGrid3D, relaxNodeCollisions, separateSemanticGroups } from "../server/layout";
 import { createMap2DLayout, easeInOutCubic } from "../src/graph/layout-2d";
-import type { GraphNode } from "../src/types";
+import { SCALABLE_LAYOUT_PAGE_THRESHOLD, type GraphNode } from "../src/types";
 
 describe("semantic layout spacing", () => {
   test("separates overlapping group volumes deterministically", () => {
@@ -45,6 +45,19 @@ describe("semantic layout spacing", () => {
       expect(distance).toBeLessThan(77);
     }
   });
+
+  test("packs ten thousand 3D nodes without pairwise relaxation", () => {
+    const nodes = Array.from({ length: 10_000 }, (_, index) => ({
+      id: `node-${String(index).padStart(5, "0")}`,
+      group: index % 24,
+      radius: 1 + (index % 5) * 0.1,
+    }));
+    const first = projectPackedGrid3D(nodes);
+    const second = projectPackedGrid3D(nodes);
+    expect(first.size).toBe(nodes.length);
+    expect(first).toEqual(second);
+    expect([...first.values()].every((point) => point.length === 3 && point.every(Number.isFinite))).toBe(true);
+  });
 });
 
 describe("dedicated 2D map layout", () => {
@@ -78,5 +91,23 @@ describe("dedicated 2D map layout", () => {
     expect(easeInOutCubic(0.5)).toBe(0.5);
     expect(easeInOutCubic(1)).toBe(1);
     expect(easeInOutCubic(0.25)).toBeCloseTo(1 - easeInOutCubic(0.75), 10);
+  });
+
+  test("switches thousands of nodes to the deterministic packed-grid path", () => {
+    const nodes = Array.from({ length: SCALABLE_LAYOUT_PAGE_THRESHOLD + 501 }, (_, index) => node(
+      `large-${String(index).padStart(5, "0")}`,
+      `group-${index % 20}`,
+      0,
+      0,
+      0,
+      { isUnclassified: index % 101 === 0, hasEmbedding: index % 127 !== 0 },
+    ));
+    const first = createMap2DLayout(nodes);
+    const second = createMap2DLayout(nodes);
+    expect(Object.keys(first.positions)).toHaveLength(nodes.length);
+    expect(first).toEqual(second);
+    expect(Object.values(first.positions).every((point) => point.z === 0 && Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+    expect(first.minimumNodeGap).toBeGreaterThanOrEqual(0.8);
+    expect(first.minimumCommunityGap).toBeGreaterThanOrEqual(14);
   });
 });

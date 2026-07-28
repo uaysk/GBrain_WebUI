@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Database, Focus, LogOut, Map as MapIcon, RefreshCw, RotateCcw, Tag, Waypoints } from "lucide-react";
+import { Box, Database, Focus, LogOut, Map as MapIcon, RefreshCw, RotateCcw, ServerCog, Tag, Waypoints } from "lucide-react";
 import { Legend } from "./components/Legend";
 import { LayerControls } from "./components/LayerControls";
 import { CommunityNodeList } from "./components/CommunityNodeList";
 import { NodeContextPanel } from "./components/NodeContextPanel";
 import { GraphTimelineControls } from "./components/GraphTimelineControls";
+import { ControlCenter } from "./components/control/ControlCenter";
 import { Button } from "./components/ui/button";
 import { Tooltip } from "./components/ui/tooltip";
 import { MemoryGraph, type GraphControls } from "./graph/MemoryGraph";
-import type { GraphResponse, GraphTimelineResponse, StatusResponse } from "./types";
+import type { GraphRebuildAccepted, GraphRebuildStatus, GraphResponse, GraphTimelineResponse, StatusResponse } from "./types";
 import { activeGraphEdges, relatedNodesForNode } from "./graph/graph-layers";
 import { projectGraphAtFrame } from "./graph/graph-timeline";
 import { nodesInCommunityHalo } from "./graph/halo";
@@ -26,12 +27,19 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="flex min-w-fit items-baseline gap-1.5"><span className="text-[10px] uppercase tracking-[0.1em] text-zinc-500">{label}</span><strong className="font-mono text-xs font-medium text-zinc-100">{value}</strong></div>;
 }
 
+function surfaceFromPath(pathname: string): "map" | "control" {
+  return pathname.replace(/\/+$/, "") === "/control" ? "control" : "map";
+}
+
 export default function App() {
   const controls = useRef<GraphControls>(null);
+  const [surface, setSurface] = useState<"map" | "control">(() => surfaceFromPath(window.location.pathname));
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [timeline, setTimeline] = useState<GraphTimelineResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
+  const [rebuildStatus, setRebuildStatus] = useState<GraphRebuildStatus | null>(null);
   const [timelineError, setTimelineError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,6 +51,7 @@ export default function App() {
   const load = useCallback(async () => {
     setError(null);
     setTimelineError(false);
+    const rebuildStatusRequest = json<GraphRebuildStatus>("/api/graph/rebuild/status").catch(() => null);
     const historyRequest = json<GraphTimelineResponse>("/api/graph/history").then(
       (value) => ({ ok: true as const, value }),
       () => ({ ok: false as const }),
@@ -53,34 +62,80 @@ export default function App() {
         json<GraphResponse>("/api/graph"),
       ]);
       setStatus(nextStatus); setGraph(nextGraph); setLoading(false);
+      const nextRebuildStatus = await rebuildStatusRequest;
+      if (nextRebuildStatus) {
+        setRebuildStatus(nextRebuildStatus);
+        if (nextRebuildStatus.state === "running") setRefreshing(true);
+      }
       const historyResult = await historyRequest;
       if (historyResult.ok && historyResult.value.graphGeneratedAt === nextGraph.generatedAt) setTimeline(historyResult.value);
       else { setTimeline(null); setTimelineError(true); }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "데이터를 불러올 수 없습니다."); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const onPopState = () => setSurface(surfaceFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+  useEffect(() => {
+    document.title = surface === "control" ? "GBrain Control Center" : `GBrain ${viewMode.toUpperCase()} Memory Map`;
+  }, [surface, viewMode]);
+  const navigateSurface = useCallback((next: "map" | "control") => {
+    const path = next === "control" ? "/control" : "/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    setSurface(next);
+  }, []);
+  useEffect(() => {
+    if (surface === "map") void load();
+  }, [load, surface]);
   useEffect(() => {
     const minimum = graph?.communityDetection.minSemanticSimilarity;
     if (minimum !== undefined && semanticThreshold < minimum) patchState({ semanticThreshold: Math.min(1, minimum) });
   }, [graph?.communityDetection.minSemanticSimilarity, patchState, semanticThreshold]);
 
   const rebuild = async () => {
-    setRefreshing(true); setError(null); setTimelineError(false);
+    setRefreshing(true); setRebuildError(null); setTimelineError(false);
     try {
-      const next = await json<GraphResponse>("/api/graph/rebuild", { method: "POST" });
-      setGraph(next);
-      const [statusResult, historyResult] = await Promise.allSettled([
-        json<StatusResponse>("/api/status"),
-        json<GraphTimelineResponse>("/api/graph/history"),
-      ]);
-      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
-      else setStatus({ connected: false, lastBuiltAt: next.generatedAt, counts: next.counts });
-      if (historyResult.status === "fulfilled" && historyResult.value.graphGeneratedAt === next.generatedAt) setTimeline(historyResult.value);
-      else { setTimeline(null); setTimelineError(true); }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "새로고침에 실패했습니다."); }
-    finally { setRefreshing(false); }
+      const accepted = await json<GraphRebuildAccepted>("/api/graph/rebuild", { method: "POST" });
+      setRebuildStatus(accepted.status);
+    } catch (reason) {
+      setRebuildError(reason instanceof Error ? reason.message : "새로고침 시작에 실패했습니다.");
+      setRefreshing(false);
+    }
   };
+  useEffect(() => {
+    if (!refreshing) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const next = await json<GraphRebuildStatus>("/api/graph/rebuild/status");
+        if (cancelled) return;
+        setRebuildStatus(next);
+        if (next.state === "running" || next.state === "idle") {
+          timer = window.setTimeout(() => { void poll(); }, 800);
+          return;
+        }
+        if (next.state === "failed") {
+          setRebuildError(next.error ?? "새로고침에 실패했습니다. 기존 snapshot을 유지합니다.");
+          setRefreshing(false);
+          return;
+        }
+        await load();
+        if (!cancelled) setRefreshing(false);
+      } catch (reason) {
+        if (cancelled) return;
+        setRebuildError(reason instanceof Error ? reason.message : "새로고침 상태를 확인할 수 없습니다.");
+        setRefreshing(false);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [load, refreshing]);
   const timelineProjection = useMemo(() => timelineOn && graph && timeline && history.frame
     ? projectGraphAtFrame(graph, timeline, history.frame)
     : null, [graph, history.frame, timeline, timelineOn]);
@@ -111,14 +166,17 @@ export default function App() {
     <main className="flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-[#080808] text-zinc-100">
       <header className="z-20 flex min-h-16 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 bg-[#111113] px-4 py-2.5">
         <div className="mr-auto flex min-w-fit items-center gap-3">
-          <div className="flex size-8 items-center justify-center rounded-md bg-zinc-800"><Waypoints className="size-4" /></div>
-          <div><h1 className="text-sm font-semibold tracking-tight sm:text-base">GBrain {viewMode.toUpperCase()} Memory Map</h1><p className="text-[10px] text-zinc-500">Read-only semantic memory space</p></div>
+          <div className="flex size-8 items-center justify-center rounded-md bg-zinc-800">{surface === "map" ? <Waypoints className="size-4" /> : <ServerCog className="size-4" />}</div>
+          <div><h1 className="text-sm font-semibold tracking-tight sm:text-base">{surface === "map" ? `GBrain ${viewMode.toUpperCase()} Memory Map` : "GBrain Control Center"}</h1><p className="text-[10px] text-zinc-500">{surface === "map" ? "Read-only semantic memory space" : "Guarded operations & visual observability"}</p></div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {surface === "map" && <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <div className="flex items-center gap-1.5 text-xs text-zinc-400" data-testid="db-status" data-state={dbState}><span className={`size-2 rounded-full ${dbState === "connected" ? "bg-emerald-500" : dbState === "failed" ? "bg-red-500" : "animate-pulse bg-amber-400"}`} /><Database className="size-3.5" />{dbState === "connected" ? "DB connected" : dbState === "failed" ? "DB failed" : "DB connecting"}</div>
           <Metric label="Pages" value={counts?.pages ?? "—"} /><Metric label="Chunks" value={counts?.chunks ?? "—"} /><Metric label="Links" value={counts?.links ?? "—"} /><Metric label="Coverage" value={counts ? `${(counts.embeddingCoverage * 100).toFixed(1)}%` : "—"} />
-        </div>
+        </div>}
         <div className="flex flex-wrap items-center gap-1.5">
+          <Button data-testid="map-surface-toggle" variant={surface === "map" ? "active" : "default"} aria-pressed={surface === "map"} onClick={() => navigateSurface("map")}><Waypoints className="size-3.5" />Map</Button>
+          <Button data-testid="control-surface-toggle" variant={surface === "control" ? "active" : "default"} aria-pressed={surface === "control"} onClick={() => navigateSurface("control")}><ServerCog className="size-3.5" />Control</Button>
+          {surface === "map" && <>
           <Tooltip content={`${viewMode === "3d" ? "충돌 없는 평면 layout" : "원래 공간 layout"}으로 모핑합니다`}><Button
             data-testid="view-mode-toggle"
             aria-label={`${viewMode === "3d" ? "2D" : "3D"} 맵으로 전환`}
@@ -127,13 +185,15 @@ export default function App() {
           <Tooltip content="모든 노드를 화면에 맞춥니다"><Button onClick={() => controls.current?.fit()}><Focus className="size-3.5" /><span className="hidden xl:inline">Fit graph</span></Button></Tooltip>
           <Tooltip content="기본 카메라 위치로 돌아갑니다"><Button onClick={() => controls.current?.reset()}><RotateCcw className="size-3.5" /><span className="hidden xl:inline">Reset camera</span></Button></Tooltip>
           <Button data-testid="community-label-toggle" variant={communityLabelsOn ? "active" : "default"} aria-pressed={communityLabelsOn} onClick={() => patchState({ communityLabelsOn: !communityLabelsOn })}><Tag className="size-3.5" />Community labels {communityLabelsOn ? "on" : "off"}</Button>
-          <Tooltip content="DB에서 graph snapshot을 다시 생성합니다"><Button onClick={() => void rebuild()} disabled={refreshing}><RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} /><span className="hidden sm:inline">데이터 새로고침</span></Button></Tooltip>
+          <Tooltip content="DB에서 graph snapshot을 백그라운드로 다시 생성합니다"><Button onClick={() => void rebuild()} disabled={refreshing}><RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} /><span className="hidden sm:inline">{refreshing ? `새로고침 · ${rebuildStatus?.phase ?? "대기"}` : "데이터 새로고침"}</span></Button></Tooltip>
+          </>}
           <form method="post" action="/auth/logout"><Tooltip content="인증 세션을 종료합니다"><Button type="submit" size="icon" aria-label="로그아웃"><LogOut className="size-3.5" /></Button></Tooltip></form>
         </div>
       </header>
-      <section className="relative min-h-0 flex-1 overflow-hidden">
+      {surface === "control" ? <ControlCenter /> : <section className="relative min-h-0 flex-1 overflow-hidden">
         {loading && <div className="absolute inset-0 z-30 grid place-items-center bg-[#080808]"><div className="flex items-center gap-3 text-sm text-zinc-400"><RefreshCw className="size-4 animate-spin" />UMAP · Leiden graph를 생성하는 중…</div></div>}
         {error && <div className="absolute left-1/2 top-5 z-40 -translate-x-1/2 rounded-md bg-red-950 px-4 py-2 text-xs text-red-200">{error}</div>}
+        {rebuildError && graph && <div className="absolute left-1/2 top-5 z-40 -translate-x-1/2 rounded-md bg-amber-950 px-4 py-2 text-xs text-amber-200">{rebuildError}</div>}
         {graph && displayedGraph && <><MemoryGraph ref={controls} graph={displayedGraph} viewMode={viewMode} labelsOn={communityLabelsOn} layers={layers} selectedId={effectiveSelectedId} changedNodeIds={timelineProjection?.changedNodeIds} onSelect={selectNode} onCommunityFocus={setFocusedCommunityId} /><Legend />
           <div className={`pointer-events-none absolute right-3 top-3 z-30 flex w-[min(310px,calc(100vw-24px))] flex-col gap-2 ${overlayBottomClass}`}>
             <LayerControls
@@ -169,7 +229,7 @@ export default function App() {
           />}
           {timelineOn && timelineError && <div data-testid="graph-timeline-error" className="pointer-events-none absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-amber-950/90 px-3 py-2 text-[10px] text-amber-200">Memory history unavailable · current graph remains available</div>}
         </>}
-      </section>
+      </section>}
     </main>
   );
 }

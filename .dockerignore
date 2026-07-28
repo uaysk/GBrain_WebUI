@@ -4,6 +4,7 @@
 .cache
 node_modules
 dist
+data
 screenshots
 test-results
 playwright-report

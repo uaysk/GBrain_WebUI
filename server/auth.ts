@@ -64,6 +64,33 @@ export class AuthService {
     return Number.isFinite(expiresAt) && expiresAt > Date.now();
   }
 
+  csrfToken(request: Request): string | null {
+    const session = cookieValue(request, COOKIE_NAME);
+    if (!session || !this.isAuthenticated(request)) return null;
+    return createHmac("sha256", this.config.sessionSecret)
+      .update("gbrain-control-csrf\0")
+      .update(session)
+      .digest("base64url");
+  }
+
+  isValidCsrf(request: Request, submitted: string | null): boolean {
+    const expected = this.csrfToken(request);
+    if (!expected || !submitted) return false;
+    const actualBuffer = Buffer.from(submitted);
+    const expectedBuffer = Buffer.from(expected);
+    return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+  }
+
+  actorHash(request: Request): string | null {
+    const session = cookieValue(request, COOKIE_NAME);
+    if (!session || !this.isAuthenticated(request)) return null;
+    return createHmac("sha256", this.config.sessionSecret)
+      .update("gbrain-control-actor\0")
+      .update(session)
+      .digest("hex")
+      .slice(0, 24);
+  }
+
   loginPage(request: Request, headers: HeadersInit): Response {
     const next = safeNext(new URL(request.url).searchParams.get("next"));
     return new Response(loginPage(next), { headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });

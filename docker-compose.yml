@@ -12,11 +12,23 @@ services:
       NODE_ENV: production
       APP_HOST: 0.0.0.0
       APP_PORT: ${APP_PORT:-3000}
+      APP_SNAPSHOT_PATH: /app-data/graph-snapshot.json
+      GBRAIN_CONTROL_MCP_URL: ${GBRAIN_CONTROL_MCP_URL:-}
+      GBRAIN_CONTROL_MCP_TOKEN: ${GBRAIN_CONTROL_MCP_TOKEN:-}
+      GBRAIN_CONTROL_ALLOW_INSECURE_HTTP: ${GBRAIN_CONTROL_ALLOW_INSECURE_HTTP:-false}
+      GBRAIN_CONTROL_MUTATIONS_ENABLED: ${GBRAIN_CONTROL_MUTATIONS_ENABLED:-false}
+      APP_CONTROL_CENTER_REQUEST_TIMEOUT_SECONDS: ${APP_CONTROL_CENTER_REQUEST_TIMEOUT_SECONDS:-10}
+      APP_CONTROL_CENTER_CACHE_SECONDS: ${APP_CONTROL_CENTER_CACHE_SECONDS:-10}
+      APP_CONTROL_ACTION_LEDGER_PATH: /app-data/control-actions.json
     ports:
       - "${APP_PUBLISHED_HOST:-127.0.0.1}:${APP_PUBLISHED_PORT:-3100}:${APP_PORT:-3000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000
+    volumes:
+      - ./data:/app-data
     cap_drop:
       - ALL
     security_opt:

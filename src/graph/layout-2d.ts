@@ -1,4 +1,4 @@
-import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, type GraphNode } from "../types";
+import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, SCALABLE_LAYOUT_PAGE_THRESHOLD, type GraphNode } from "../types";
 
 export type MapViewMode = "3d" | "2d";
 
@@ -165,8 +165,79 @@ function minimumNodeSurfaceGap(nodes: GraphNode[], positions: Record<string, Lay
   return minimum;
 }
 
+function createPackedGrid2DLayout(stableNodes: GraphNode[]): Map2DLayout {
+  const grouped = new Map<string, GraphNode[]>();
+  const looseNodes: GraphNode[] = [];
+  for (const node of stableNodes) {
+    if (!node.hasEmbedding || node.isUnclassified) looseNodes.push(node);
+    else {
+      const members = grouped.get(node.groupId);
+      if (members) members.push(node);
+      else grouped.set(node.groupId, [node]);
+    }
+  }
+  const packed = [...grouped.entries()].map(([id, members]) => {
+    const nodes = [...members].sort((left, right) => left.id.localeCompare(right.id));
+    const maximumRadius = Math.max(0.5, ...nodes.map((node) => NODE_RADIUS_SCALE * node.size));
+    const spacing = maximumRadius * 2 + NODE_COLLISION_GAP;
+    const side = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
+    const rows = Math.max(1, Math.ceil(nodes.length / side));
+    const local = nodes.map((node, index) => ({
+      node,
+      x: (index % side - (side - 1) / 2) * spacing,
+      y: (Math.floor(index / side) - (rows - 1) / 2) * spacing,
+    }));
+    const radius = Math.max(7, ...local.map((point) => Math.hypot(point.x, point.y) + NODE_RADIUS_SCALE * point.node.size)) + HALO_PADDING;
+    return { id, local, radius: radius * OUTER_HALO_SCALE };
+  }).sort((left, right) => right.radius - left.radius || left.id.localeCompare(right.id));
+
+  const positions: Record<string, LayoutPoint> = {};
+  const communityDiscs: CommunityDisc[] = [];
+  let radialDistance = 0;
+  let previousRadius = 0;
+  packed.forEach((community, index) => {
+    if (index > 0) radialDistance += previousRadius + community.radius + GROUP_GAP;
+    const angle = index * 2.399963229728653;
+    const center = index === 0 ? [0, 0] : [Math.cos(angle) * radialDistance, Math.sin(angle) * radialDistance];
+    for (const point of community.local) positions[point.node.id] = { x: center[0]! + point.x, y: center[1]! + point.y, z: 0 };
+    communityDiscs.push({ id: community.id, center: { x: center[0]!, y: center[1]! }, radius: community.radius });
+    previousRadius = community.radius;
+  });
+
+  const packedExtent = Math.max(0, ...communityDiscs.map((disc) => Math.hypot(disc.center.x, disc.center.y) + disc.radius));
+  if (looseNodes.length) {
+    const maximumRadius = Math.max(0.5, ...looseNodes.map((node) => NODE_RADIUS_SCALE * node.size));
+    const spacing = maximumRadius * 2 + NODE_COLLISION_GAP;
+    const side = Math.max(1, Math.ceil(Math.sqrt(looseNodes.length)));
+    const rows = Math.max(1, Math.ceil(looseNodes.length / side));
+    const looseRadius = Math.hypot((side - 1) * spacing / 2, (rows - 1) * spacing / 2) + maximumRadius;
+    const centerX = packedExtent + looseRadius + GROUP_GAP;
+    looseNodes.forEach((node, index) => {
+      positions[node.id] = {
+        x: centerX + (index % side - (side - 1) / 2) * spacing,
+        y: (Math.floor(index / side) - (rows - 1) / 2) * spacing,
+        z: 0,
+      };
+    });
+  }
+
+  const extent = Math.max(1, ...stableNodes.map((node) => {
+    const point = positions[node.id]!;
+    return Math.hypot(point.x, point.y) + NODE_RADIUS_SCALE * node.size;
+  }));
+  return {
+    positions,
+    communityDiscs,
+    looseNodeIds: looseNodes.map((node) => node.id),
+    extent,
+    minimumNodeGap: NODE_COLLISION_GAP,
+    minimumCommunityGap: packed.length > 1 ? GROUP_GAP : 0,
+  };
+}
+
 export function createMap2DLayout(nodes: GraphNode[]): Map2DLayout {
   const stableNodes = [...nodes].sort((left, right) => left.id.localeCompare(right.id));
+  if (stableNodes.length > SCALABLE_LAYOUT_PAGE_THRESHOLD) return createPackedGrid2DLayout(stableNodes);
   const communities = prepareCommunities(stableNodes);
   const centers = packCommunityCenters(communities);
   const positions: Record<string, LayoutPoint> = {};

@@ -11,6 +11,7 @@ function node(id: string, groupId: string, overrides: Partial<GraphNode> = {}): 
 }
 
 const graph: GraphResponse = {
+  layout: { engine: "umap", scalableThreshold: 2_000 },
   generatedAt: "2025-01-04T12:00:00.000Z",
   nodes: [node("a", "group-1"), node("b", "group-1"), node("c", "unclassified", { hasEmbedding: false, isUnclassified: true })],
   explicitEdges: [{ id: "ab", source: "a", target: "b", kind: "explicit", linkType: "link", linkSource: null, family: "association", color: "#fff", dashPattern: [], width: 1, directed: false, similarity: null, curvature: 0, parallelIndex: 0, selfLink: false }],

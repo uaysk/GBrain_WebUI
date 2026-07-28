@@ -10,3 +10,5 @@ screenshots/*.png
 !screenshots/gbrain-demo-memory-map-focus.png
 *.log
 *.tsbuildinfo
+data/*
+!data/.gitkeep

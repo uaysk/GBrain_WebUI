@@ -3,7 +3,15 @@
 :root { color-scheme: dark; font-family: Inter, Pretendard, "Noto Sans KR", ui-sans-serif, system-ui, sans-serif; background: #080808; }
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, select, input { touch-action: manipulation; }
 button { cursor: pointer; }
+@media (pointer: coarse) {
+  button { min-width: 44px; min-height: 44px; }
+  select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 .scene-tooltip, .float-tooltip-kap { z-index: 80 !important; pointer-events: none !important; }
 .graph-tooltip { display: flex; min-width: 180px; max-width: 320px; flex-direction: column; gap: 3px; border-radius: 7px; background: rgba(39, 39, 42, .96); padding: 9px 11px; color: #a1a1aa; font: 11px/1.35 Inter, Pretendard, sans-serif; box-shadow: none; }
 .graph-tooltip strong { margin-bottom: 2px; color: #fafafa; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }

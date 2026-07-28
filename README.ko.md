@@ -6,7 +6,7 @@
 
 이 애니메이션은 타임라인을 끈 상태에서 재현 가능한 [`demo/gbrain-demo-memory.ts`](demo/gbrain-demo-memory.ts) 합성 메모리를 사용합니다. 사용자 메모리, 운영 metadata, credential, infrastructure identifier는 포함하지 않습니다.
 
-로컬 GBrain PostgreSQL·pgvector의 page를 읽기 전용 semantic map으로 보여주는 단일 화면 웹 앱입니다. 기본 3D map과 충돌 없는 전용 2D map을 전환할 수 있습니다. 브라우저는 Bun API만 호출하며 DB 자격 증명, 원본 embedding, 전체 본문은 받지 않습니다.
+로컬 GBrain PostgreSQL·pgvector를 읽어 semantic map으로 보여주고, 명시적으로 활성화한 경우에만 소수의 고정 GBrain 작업을 안전장치가 있는 관리 화면에서 실행하는 웹 앱입니다. 기본 3D map과 충돌 없는 전용 2D map을 전환할 수 있습니다. 브라우저는 Bun API만 호출하며 DB·MCP 자격 증명, 원본 embedding, 전체 본문은 받지 않습니다.
 
 ## 구성
 
@@ -16,12 +16,18 @@
 - `umap-js` 고정 seed 3D projection
 - 실제 schema: `pages`, `content_chunks`, `links`, `tags`, `sources`
 
-API는 다음 세 개뿐입니다.
+서버가 제공하는 application API는 다음과 같습니다.
 
 ```text
 GET  /api/status
 GET  /api/graph
+GET  /api/graph/history
+GET  /api/graph/rebuild/status
+GET  /api/control-center
+GET  /api/control-center/csrf
+GET  /api/node-detail?id=<stable-id>
 POST /api/graph/rebuild
+POST /api/control-center/actions
 ```
 
 ## 설정
@@ -41,6 +47,15 @@ GBRAIN_DB_PASSWORD=<secret>
 GBRAIN_DB_SCHEMA=public
 GBRAIN_ALLOWED_SOURCE_IDS=default
 
+# 선택 사항: /control 운영 화면. 관리 실행은 기본적으로 비활성화
+GBRAIN_CONTROL_MCP_URL=http://127.0.0.1:3131/mcp
+GBRAIN_CONTROL_MCP_TOKEN=<server-only-admin-scope-token>
+GBRAIN_CONTROL_ALLOW_INSECURE_HTTP=false
+GBRAIN_CONTROL_MUTATIONS_ENABLED=false
+APP_CONTROL_CENTER_REQUEST_TIMEOUT_SECONDS=10
+APP_CONTROL_CENTER_CACHE_SECONDS=10
+APP_CONTROL_ACTION_LEDGER_PATH=data/control-actions.json
+
 LEIDEN_RESOLUTION=0.5
 LEIDEN_MIN_SEMANTIC_SIMILARITY=0.65
 LEIDEN_SEED=84
@@ -49,6 +64,9 @@ APP_HOST=127.0.0.1
 APP_PORT=3000
 APP_PUBLIC_ORIGIN=
 APP_REBUILD_MIN_INTERVAL_SECONDS=15
+APP_REBUILD_STATEMENT_TIMEOUT_SECONDS=600
+APP_SEMANTIC_CANDIDATE_CHUNKS=64
+APP_SEMANTIC_HNSW_EF_SEARCH=80
 
 APP_AUTH_PASSWORD=<password>
 APP_SESSION_SECRET=<at-least-32-random-characters>
@@ -58,6 +76,30 @@ APP_AUTH_ATTEMPT_WINDOW_MINUTES=15
 ```
 
 `GBRAIN_ALLOWED_SOURCE_IDS`는 쉼표로 구분합니다. 서버는 schema 식별자를 검증하고, source allowlist와 `deleted_at IS NULL` 조건을 모든 snapshot 쿼리에 적용합니다.
+
+## Control Center
+
+상단의 `Control`을 누르거나 `/control`로 이동하면 Dream, source 상태와 최근 background job을 별도 운영 화면에서 확인할 수 있습니다. 명령 stdout이나 raw JSON을 그대로 표시하지 않고 다음과 같이 시각화합니다.
+
+- 연결·source freshness·최근 Dream·job 상태를 요약한 KPI card
+- source별 embedding coverage와 backfill 진행 막대
+- Dream 전체 단계의 순서, 상태, 소요 시간을 보여주는 timeline
+- 실제 변화량을 숫자 card로 정리한 impact summary
+- 최근 30개 job 표본의 상태 분포와 선택 가능한 상세 panel
+
+관리 실행은 `GBRAIN_CONTROL_MUTATIONS_ENABLED=true`일 때만 활성화됩니다. 활성화해도 browser가 임의 명령을 보내는 구조가 아니라 server의 고정 action registry만 사용합니다.
+
+- `sync → extract → embed` 단계만 실행하고 `purge`를 포함하지 않는 Quick Dream
+- GBrain에 이미 등록된 설정만 사용하는 source 동기화
+- allowlist source의 오래된 embedding 갱신
+- 실패/중단된 안전한 `sync`·stale `embed` job 재시도
+- 안전한 대기/지연 job 취소
+
+Browser는 MCP tool name, queue, phase 목록, path, URL, timeout, 임의 payload를 지정할 수 없습니다. Full Dream/global maintenance, source 삭제, replay, pause/resume, active job 취소, schema/config/page mutation은 의도적으로 제외했습니다. 모든 action은 인증 세션, 세션 연동 CSRF token, strict same-origin POST, 확인 dialog, 실제 source/job 상태 재조회, 24시간 영속 idempotency 기록을 통과합니다. 결과는 stdout이 아니라 구조화된 접수 결과와 기존 job 시각화로 표시합니다.
+
+현재 필요한 status/job tool은 `admin` scope를 요구하므로 server credential은 admin-capable입니다. 전용 token을 WebUI server에만 주입하고 Git, image layer, browser에 넣지 마십시오. Browser response에는 raw job `data`, stacktrace, lock/upstream idempotency token, 로컬 경로를 포함하지 않습니다. MCP가 설정되지 않아도 Memory Map은 정상 동작하며 Control 화면에는 설정 안내가 표시됩니다.
+
+Source가 명시된 job은 `GBRAIN_ALLOWED_SOURCE_IDS`에 포함된 경우만 표시합니다. Source가 없는 brain-wide 결과는 status snapshot의 모든 source가 allowlist에 포함된 경우에만 표시하며, source 범위를 확인할 수 없으면 숨기는 fail-closed 정책을 사용합니다.
 
 ## 실행
 
@@ -75,7 +117,7 @@ bun run start
 
 production에서는 Bun 서버가 `dist/`와 API를 같은 origin에서 제공합니다.
 
-production 앱은 비밀번호 로그인으로 보호됩니다. 성공 시 Bun 서버가 서명된 HttpOnly 세션 쿠키를 발급하며, 공개 HTTPS에서는 `Secure`, 모든 환경에서 `SameSite=Strict`를 적용합니다. 비밀번호와 세션 서명 키는 브라우저나 image layer로 전달되지 않습니다. Vite 개발 서버는 loopback 개발 전용이며 인증 진입점을 검증하려면 production 방식으로 실행하십시오. 로그인 POST는 동일/설정 origin과 비신뢰 TLS 예외 페이지의 opaque `Origin: null`만 허용하며, 로그아웃과 graph rebuild는 계속 동일 origin만 허용합니다.
+production 앱은 비밀번호 로그인으로 보호됩니다. 성공 시 Bun 서버가 서명된 HttpOnly 세션 쿠키를 발급하며, 공개 HTTPS에서는 `Secure`, 모든 환경에서 `SameSite=Strict`를 적용합니다. 비밀번호와 세션 서명 키는 브라우저나 image layer로 전달되지 않습니다. Vite 개발 서버는 loopback 개발 전용이며 인증 진입점을 검증하려면 production 방식으로 실행하십시오. 로그인 POST는 동일/설정 origin과 비신뢰 TLS 예외 페이지의 opaque `Origin: null`을 허용합니다. Control mutation은 더 엄격하게 설정된 origin, same-origin fetch metadata, JSON, session-bound CSRF header, idempotency key를 모두 요구합니다.
 
 ## Docker Compose 실행
 
@@ -87,6 +129,14 @@ docker compose ps
 curl http://127.0.0.1:3100/healthz
 ```
 
+이 호스트의 GBrain Control Center까지 함께 배포할 때는 다음 명령을 사용합니다.
+
+```bash
+bun run deploy:control
+```
+
+이 스크립트는 기존 GBrain MCP bearer인 `GBRAIN_REMOTE_TOKEN`을 Compose 프로세스 환경으로 전달합니다. 필요하면 `GBRAIN_CONTROL_MCP_TOKEN`을 직접 지정할 수 있습니다. 이 값은 MCP access token이어야 하며 admin bootstrap 절차에만 쓰이는 `GBRAIN_ADMIN_BOOTSTRAP_TOKEN`과는 다릅니다. 이 host에서는 wrapper가 guarded action registry도 활성화하고 비밀값이 아닌 action idempotency metadata를 `/app-data`에 보존합니다. Token 값을 `.env`, Git, build context 또는 image layer에 복사하지 않습니다. 다른 host에서는 token, URL, mutation flag를 명시적으로 설정하십시오.
+
 기본 container port는 3000이고 host에는 `127.0.0.1:3100`으로 게시합니다. 이 호스트에서는 3000과 3200을 기존 서비스가 사용하고 있어 충돌을 피한 값입니다. 포트를 바꾸려면 `.env`의 `APP_PUBLISHED_PORT`만 변경합니다.
 
 종료와 로그 확인:
@@ -96,22 +146,26 @@ docker compose logs -f web
 docker compose down
 ```
 
-Compose 서비스는 non-root user, read-only root filesystem, capability drop, `no-new-privileges`, 제한된 `/tmp` tmpfs로 실행됩니다. DB 자격 증명은 runtime environment로만 주입되며 image layer에는 복사되지 않습니다.
+Compose 서비스는 non-root user, read-only root filesystem, capability drop, `no-new-privileges`, 제한된 `/tmp` tmpfs로 실행됩니다. DB 자격 증명은 runtime environment로만 주입되며 image layer에는 복사되지 않습니다. 마지막 정상 graph snapshot은 host의 `data/graph-snapshot.json`에 원자적으로 저장되어 container 재시작 직후에도 DB 재계산을 기다리지 않고 제공됩니다.
+
+호스트에서 GBrain MCP를 실행한다면 Compose의 `GBRAIN_CONTROL_MCP_URL`에는 `http://host.docker.internal:3131/mcp`처럼 `host.docker.internal`을 사용할 수 있습니다. 단, host-gateway mapping은 이름 해석만 제공하므로 MCP가 기본 loopback(`127.0.0.1`)에만 bind되어 있으면 container에서 연결되지 않습니다. MCP를 Docker bridge에서만 접근 가능한 host 주소에 bind하거나 TLS reverse proxy를 사용하고, 방화벽으로 WebUI container 이외의 접근을 차단하십시오. 비-loopback 평문 HTTP를 의도적으로 사용할 때만 `GBRAIN_CONTROL_ALLOW_INSECURE_HTTP=true`를 설정합니다. `0.0.0.0:3131`을 외부 network에 그대로 공개하지 마십시오.
 
 ## 데이터 처리
 
 1. `brain-map` 태그가 붙은 탐색용 메타 인덱스 page를 page·embedding·link query 단계에서 제외합니다. 원본 GBrain page는 변경하지 않습니다.
 2. 각 chunk embedding에 PostgreSQL `l2_normalize()`를 적용합니다.
 3. `avg()`로 page embedding을 만듭니다.
-4. 같은 page vector CTE에서 pgvector cosine distance(`<=>`)로 page별 top-2 semantic edge를 생성합니다.
+4. 기존 `content_chunks.embedding` HNSW index로 각 page의 후보 chunk를 찾고, 후보 page만 page embedding cosine distance(`<=>`)로 정확히 재정렬해 top-2 semantic edge를 생성합니다. 기본 후보 수는 64이며 `APP_SEMANTIC_CANDIDATE_CHUNKS`로 조정할 수 있습니다.
 5. semantic edge와 explicit edge를 하나의 가중 undirected graph로 합칩니다. 양방향 semantic edge는 한 edge로 합치고 self-link는 community 계산에서 제외합니다.
 6. Graphology 기반 Leiden을 고정 seed로 실행해 community를 만들고, community를 node color와 halo에 사용합니다.
-7. page embedding은 별도의 고정 seed UMAP으로 3차원 projection해 표시 좌표를 만듭니다.
+7. 2,000 page 이하는 page embedding을 고정 seed UMAP으로 3차원 projection합니다. 이를 초과하면 전체 고차원 embedding을 API 프로세스로 가져오거나 O(N²) 충돌 계산을 하지 않고 community별 deterministic packed-grid를 사용합니다.
 8. embedding이 없는 page도 explicit relation이 있으면 Leiden community에 포함하지만, 좌표는 기존처럼 외곽 outline-only 영역에 둡니다.
 
 stable node ID는 `source_id::slug`입니다. explicit edge는 원래 `link_type`, `link_source`, 방향을 보존하지만 화면의 선은 모두 직선이며 화살표를 사용하지 않습니다. 방향은 hover tooltip의 `source → target`으로 확인합니다. 같은 node pair의 여러 관계는 가장 높은 우선순위 선 하나로 합치고 tooltip에 원래 관계를 모두 표시합니다.
 
 상단 `Pages`와 `Chunks` 수치는 실제 DB 전체 수가 아니라 `brain-map` 메타 인덱스를 제외한 표시 대상 snapshot 기준입니다.
+
+`POST /api/graph/rebuild`는 재계산을 기다리지 않고 HTTP 202를 반환합니다. UI는 `/api/graph/rebuild/status`를 polling하며, 새 snapshot의 계산과 디스크 저장이 모두 성공한 뒤에만 이를 활성화합니다. DB 오류나 timeout이 발생하면 `/api/status`는 `connected:false`를 반환하면서 기존 메모리·디스크 snapshot을 유지하므로 graph 조회는 계속 가능합니다.
 
 ## 3D / 2D map 전환
 
@@ -121,6 +175,7 @@ stable node ID는 `source_id::slug`입니다. explicit edge는 원래 `link_type
 - 각 community의 바깥 halo를 감싸는 원을 계산하고, 원 사이에 최소 14의 간격을 두는 별도 community packing을 수행합니다.
 - 원래 3D 좌표의 등각 투영을 2D 초기 위치로 사용하므로 community의 대략적인 상대 방향을 유지합니다.
 - unclassified와 embedding 없는 outline-only node는 packed community 전체 바깥의 충돌 없는 ring에 배치합니다.
+- 2,000 page를 초과하면 브라우저 2D layout도 community별 square grid와 radial packing으로 전환해 node pair 전수 비교를 피합니다.
 - 동일한 stable node ID의 3D·2D 좌표를 1.05초 cubic ease-in-out으로 보간합니다. 전환 중 edge endpoint, halo 중심·반경, label anchor도 매 frame 함께 갱신됩니다.
 - 전환 중에는 ForceGraph 전체 `refresh()`를 호출하지 않습니다. Node는 shape·color·size attribute를 가진 단일 point batch, semantic/explicit edge는 각각 단일 line batch, community halo는 inner/outer 두 개의 저폴리 merged mesh로 잠시 합쳐 draw call을 줄입니다. 전환 종료 후 원래 billboard, 굵은 relation line, halo hover object를 즉시 복원합니다.
 - `nodeThreeObject`와 `linkThreeObject` accessor는 mode/resize render 사이에서 동일한 함수 identity를 유지합니다. 따라서 3D↔2D 전환만으로 ForceGraph가 기존 node/edge object를 교체하지 않으며, morph 시작점은 flatness 추정값이 아니라 현재 표시 좌표에서 직접 읽습니다.
@@ -159,11 +214,11 @@ Leiden 입력에서 cosine similarity가 `LEIDEN_MIN_SEMANTIC_SIMILARITY`보다 
 
 도형은 의미 그룹 색상을 채우고 얇은 검정 테두리를 사용합니다. embedding이 없는 node는 채움 없는 점선 outline으로 표시합니다. 선택 node는 색을 유지하면서 흰색 outline과 1.12배 확대를 적용합니다. 기본 node 반지름 배율은 0.675로 이전 billboard의 정확히 절반입니다. layout은 각 node의 시각 반지름 합에 0.8의 간격을 더해 collision relaxation을 수행합니다. `No retained relation` node는 amber `#E8A838`로 표시하고, embedding 유무와 무관하게 중심에서 반경 약 68–76의 근접 ring에 균일하게 배치한 뒤 전체 node collision을 다시 완화합니다. 서로 다른 깊이의 billboard는 카메라 투영 방향에 따라 화면상 겹쳐 보일 수 있습니다.
 
-## 읽기 전용과 외부 노출
+## 데이터 접근 경계와 외부 노출
 
-앱은 snapshot 생성 시 `SET TRANSACTION READ ONLY`를 실행합니다. 운영 계정에도 대상 테이블의 SELECT만 부여하고 INSERT/UPDATE/DELETE는 부여하지 마십시오.
+Memory Map의 snapshot 생성 경로는 계속 읽기 전용이며 `SET TRANSACTION READ ONLY`를 실행합니다. 운영 DB 계정에도 대상 테이블의 SELECT만 부여하고 INSERT/UPDATE/DELETE는 부여하지 마십시오. Guarded management를 활성화하면 변경은 별도의 서버 전용 MCP credential과 위에서 설명한 고정 action registry를 통해서만 수행되며, 브라우저와 PostgreSQL 시각화 계정에는 쓰기 권한을 주지 않습니다.
 
-기본 `APP_HOST=127.0.0.1`은 의도된 설정입니다. 외부에 노출할 때 Bun을 직접 인터넷에 바인딩하지 말고, 같은 호스트의 리버스 프록시를 사용하십시오. 앱의 비밀번호 인증은 기본 방어선이며 리버스 프록시에서도 TLS를 반드시 적용하십시오. 더 강한 접근 통제가 필요하면 프록시 OIDC 또는 VPN을 함께 적용할 수 있습니다. graph snapshot 자체가 개인 메모리 메타데이터일 수 있으므로 `/api/status`, `/api/graph`, `/api/graph/rebuild`는 모두 로그인 세션이 필요합니다. 공개 `/healthz`는 상태 본문이나 DB 정보를 반환하지 않고 `ok`만 반환합니다.
+기본 `APP_HOST=127.0.0.1`은 의도된 설정입니다. 외부에 노출할 때 Bun을 직접 인터넷에 바인딩하지 말고, 같은 호스트의 리버스 프록시를 사용하십시오. 앱의 비밀번호 인증은 기본 방어선이며 리버스 프록시에서도 TLS를 반드시 적용하십시오. 더 강한 접근 통제가 필요하면 프록시 OIDC 또는 VPN을 함께 적용할 수 있습니다. graph snapshot 자체가 개인 메모리 메타데이터일 수 있으므로 모든 `/api/*` endpoint는 로그인 세션이 필요합니다. 공개 `/healthz`는 상태 본문이나 DB 정보를 반환하지 않고 `ok`만 반환합니다.
 
 Caddy 예시:
 
@@ -193,12 +248,13 @@ server {
 }
 ```
 
-외부 origin을 사용하면 `.env`에 `APP_PUBLIC_ORIGIN=https://memory.example.com`을 지정하십시오. 서버는 POST rebuild의 Origin을 검사하고 기본 15초 rate limit을 적용합니다. CSP, frame 차단, MIME sniffing 차단, referrer/permissions 정책과 HTTPS 전달 시 HSTS도 응답에 추가합니다.
+외부 origin을 사용하면 `.env`에 `APP_PUBLIC_ORIGIN=https://memory.example.com`을 지정하십시오. 서버는 POST rebuild의 Origin을 검사하고 기본 15초 rate limit을 적용합니다. Rebuild는 백그라운드 job으로 시작되며 트랜잭션에 기본 600초의 별도 statement timeout을 적용합니다. HTTP 요청은 즉시 202를 반환하고, 다른 DB 요청은 DB role의 기존 timeout을 유지합니다. CSP, frame 차단, MIME sniffing 차단, referrer/permissions 정책과 HTTPS 전달 시 HSTS도 응답에 추가합니다.
 
 ## 테스트
 
 ```bash
-bun test tests/community.test.ts tests/layout.test.ts tests/style.test.ts
+bun run test
+bun run benchmark:semantic
 APP_AUTH_PASSWORD='<configured-password>' SMOKE_BASE_URL=http://127.0.0.1:3000 bun test tests/smoke.test.ts
 APP_AUTH_PASSWORD='<configured-password>' PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 bunx playwright test
 ```
@@ -214,8 +270,9 @@ README 데모 애니메이션과 이미지는 실제 WebGL UI에 합성 fixture�
 
 ## 알려진 제한
 
-- 좌표와 community는 프로세스 메모리에 cache되며 재시작 후 첫 요청에서 다시 계산됩니다.
+- 마지막 정상 graph snapshot은 디스크에 보존되지만 source DB 변경 반영은 백그라운드 rebuild가 성공한 뒤 이루어집니다.
 - 고정 seed를 사용하지만 `umap-js` 버전 변경 시 layout이 달라질 수 있습니다.
+- 2,000 page 초과 packed-grid layout은 확장성을 우선하므로 UMAP 기반의 community 내부 상대 위치를 보존하지 않습니다.
 - Leiden community label은 community의 우세 tag/type을 사용한 짧은 설명입니다.
 - Leiden 결과는 semantic threshold, relation weight, resolution과 graph corpus 변경에 따라 달라질 수 있습니다.
 - WebGL이 없는 브라우저를 위한 2D 대체 화면은 이번 단일 3D MVP 범위에 포함하지 않습니다.

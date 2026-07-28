@@ -18,8 +18,35 @@ test("auth service issues and verifies an HttpOnly strict session", async () => 
   expect(setCookie).toContain("SameSite=Strict");
   expect(setCookie).toContain("Secure");
   const cookie = setCookie.split(";", 1)[0]!;
-  expect(auth.isAuthenticated(new Request("https://gd.uaysk.com/", { headers: { Cookie: cookie } }))).toBe(true);
+  const authenticated = new Request("https://gd.uaysk.com/", { headers: { Cookie: cookie } });
+  expect(auth.isAuthenticated(authenticated)).toBe(true);
   expect(auth.isAuthenticated(new Request("https://gd.uaysk.com/", { headers: { Cookie: `${cookie}x` } }))).toBe(false);
+  const csrf = auth.csrfToken(authenticated);
+  expect(csrf).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+  expect(auth.isValidCsrf(authenticated, csrf)).toBe(true);
+  expect(auth.isValidCsrf(authenticated, `${csrf}x`)).toBe(false);
+  expect(auth.actorHash(authenticated)).toMatch(/^[a-f0-9]{24}$/);
+});
+
+test("CSRF tokens are session-bound and unavailable without a valid session", async () => {
+  const auth = new AuthService(config);
+  const login = async () => {
+    const response = await auth.login(new Request("https://gd.uaysk.com/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://gd.uaysk.com" },
+      body: new URLSearchParams({ password: config.password, next: "/" }),
+    }), {}, true);
+    return response.headers.get("set-cookie")!.split(";", 1)[0]!;
+  };
+  const firstRequest = new Request("https://gd.uaysk.com/", { headers: { Cookie: await login() } });
+  const secondRequest = new Request("https://gd.uaysk.com/", { headers: { Cookie: await login() } });
+  const firstToken = auth.csrfToken(firstRequest);
+  const secondToken = auth.csrfToken(secondRequest);
+
+  expect(firstToken).not.toBe(secondToken);
+  expect(auth.isValidCsrf(firstRequest, secondToken)).toBe(false);
+  expect(auth.csrfToken(new Request("https://gd.uaysk.com/"))).toBeNull();
+  expect(auth.isValidCsrf(new Request("https://gd.uaysk.com/"), firstToken)).toBe(false);
 });
 
 test("auth service rejects wrong passwords and unsafe redirects", async () => {

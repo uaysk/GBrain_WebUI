@@ -270,6 +270,7 @@ const counts = {
 };
 
 export const demoGraph: GraphResponse = {
+  layout: { engine: "umap", scalableThreshold: 2_000 },
   generatedAt: GENERATED_AT,
   nodes,
   explicitEdges,

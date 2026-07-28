@@ -44,6 +44,57 @@ function deterministicDirection(left: number, right: number): number[] {
   return [Math.cos(angle) * radial, Math.sin(angle) * radial, z];
 }
 
+export interface PackedGridNode {
+  id: string;
+  group: number;
+  radius: number;
+}
+
+export function projectPackedGrid3D(nodes: PackedGridNode[], gap = 0.8, groupGap = 20): Map<string, number[]> {
+  const grouped = new Map<number, PackedGridNode[]>();
+  for (const node of nodes) {
+    const members = grouped.get(node.group);
+    if (members) members.push(node);
+    else grouped.set(node.group, [node]);
+  }
+  const groups = [...grouped.entries()].map(([group, members]) => {
+    const stable = [...members].sort((left, right) => left.id.localeCompare(right.id));
+    const maximumRadius = Math.max(0.5, ...stable.map((node) => node.radius));
+    const spacing = maximumRadius * 2 + gap;
+    const side = Math.max(1, Math.ceil(Math.cbrt(stable.length)));
+    const layers = Math.max(1, Math.ceil(stable.length / (side * side)));
+    const local = stable.map((node, index) => {
+      const x = index % side;
+      const y = Math.floor(index / side) % side;
+      const z = Math.floor(index / (side * side));
+      return {
+        node,
+        point: [
+          (x - (side - 1) / 2) * spacing,
+          (y - (side - 1) / 2) * spacing,
+          (z - (layers - 1) / 2) * spacing,
+        ],
+      };
+    });
+    const radius = Math.max(maximumRadius, ...local.map(({ node, point }) => Math.hypot(...point) + node.radius));
+    return { group, local, radius };
+  }).sort((left, right) => right.radius - left.radius || left.group - right.group);
+
+  const coordinates = new Map<string, number[]>();
+  let radialDistance = 0;
+  let previousRadius = 0;
+  groups.forEach((group, index) => {
+    if (index > 0) radialDistance += previousRadius + group.radius + groupGap;
+    const direction = index === 0 ? [0, 0, 0] : deterministicDirection(index, groups.length);
+    const center = direction.map((value) => value * radialDistance);
+    for (const { node, point } of group.local) {
+      coordinates.set(node.id, point.map((value, axis) => value + (center[axis] ?? 0)));
+    }
+    previousRadius = group.radius;
+  });
+  return coordinates;
+}
+
 export function separateSemanticGroups(coords: number[][], assignments: number[], gap = 20): number[][] {
   if (coords.length !== assignments.length || coords.length === 0) return coords.map((point) => [...point]);
   const count = Math.max(-1, ...assignments) + 1;

@@ -9,6 +9,8 @@ const buttonVariants = cva(
       variant: {
         default: "bg-zinc-800/80 text-zinc-100 hover:bg-zinc-700",
         active: "bg-zinc-600 text-white hover:bg-zinc-500",
+        primary: "bg-cyan-700 text-white hover:bg-cyan-600 focus-visible:bg-cyan-600",
+        danger: "bg-red-950 text-red-200 hover:bg-red-900 focus-visible:bg-red-900",
         ghost: "bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white",
       },
       size: { default: "px-3", icon: "w-8 px-0" },

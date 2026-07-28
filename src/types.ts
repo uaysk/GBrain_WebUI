@@ -1,4 +1,5 @@
 export type * from "./api/types";
+export { SCALABLE_LAYOUT_PAGE_THRESHOLD } from "./api/types";
 export {
   NODE_COLLISION_GAP,
   NODE_RADIUS_SCALE,
