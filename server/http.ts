@@ -55,6 +55,13 @@ export function securityHeaders(network: RequestNetwork): HeadersInit {
   return headers;
 }
 
+function applyCanonicalTransportPolicy(network: RequestNetwork, publicOrigin: string | null): RequestNetwork {
+  if (network.secure || !publicOrigin) return network;
+  return new URL(publicOrigin).protocol === "https:"
+    ? { ...network, secure: true }
+    : network;
+}
+
 function requestOrigin(request: Request, network: RequestNetwork): string {
   const url = new URL(request.url);
   url.protocol = network.secure ? "https:" : "http:";
@@ -131,8 +138,9 @@ export function createHttpHandler(deps: HttpHandlerDependencies): HttpHandler {
   let lastRebuildAt = now();
 
   return async (request, connection = { address: "unknown" }) => {
-    const network = resolveRequestNetwork(request, connection, deps.config.trustProxyHops);
-    const baseHeaders = securityHeaders(network);
+    const observedNetwork = resolveRequestNetwork(request, connection, deps.config.trustProxyHops);
+    const responseNetwork = applyCanonicalTransportPolicy(observedNetwork, deps.config.publicOrigin);
+    const baseHeaders = securityHeaders(responseNetwork);
     const json = (body: unknown, status = 200, extra: HeadersInit = {}) => Response.json(body, {
       status,
       headers: { ...baseHeaders, ...extra, "Cache-Control": "no-store" },
@@ -147,10 +155,20 @@ export function createHttpHandler(deps: HttpHandlerDependencies): HttpHandler {
         return deps.auth.loginPage(request, baseHeaders);
       }
       if (url.pathname === "/auth/login" && request.method === "POST") {
-        return deps.auth.login(request, baseHeaders, loginOriginAllowed(request, network, deps.config.publicOrigin), network);
+        return deps.auth.login(
+          request,
+          baseHeaders,
+          loginOriginAllowed(request, observedNetwork, deps.config.publicOrigin),
+          responseNetwork,
+        );
       }
       if (url.pathname === "/auth/logout" && request.method === "POST") {
-        return deps.auth.logout(request, baseHeaders, sameOrigin(request, network, deps.config.publicOrigin), network);
+        return deps.auth.logout(
+          request,
+          baseHeaders,
+          sameOrigin(request, observedNetwork, deps.config.publicOrigin),
+          responseNetwork,
+        );
       }
       if (!deps.auth.isAuthenticated(request)) {
         if (url.pathname.startsWith("/api/")) return json({ error: "Authentication required" }, 401);
@@ -202,7 +220,7 @@ export function createHttpHandler(deps: HttpHandlerDependencies): HttpHandler {
           if (!deps.controlActions.enabled) {
             throw new ControlActionError(403, "management_disabled", "GBrain 관리 작업이 비활성화되어 있습니다.");
           }
-          if (!controlActionOriginAllowed(request, network, deps.config.publicOrigin)) {
+          if (!controlActionOriginAllowed(request, observedNetwork, deps.config.publicOrigin)) {
             throw new ControlActionError(403, "origin_not_allowed", "관리 요청의 출처를 확인할 수 없습니다.");
           }
           if (!deps.auth.isValidCsrf(request, request.headers.get("x-gbrain-csrf"))) {
@@ -249,7 +267,7 @@ export function createHttpHandler(deps: HttpHandlerDependencies): HttpHandler {
         return detail ? json(detail) : json({ error: "Node not found" }, 404);
       }
       if (url.pathname === "/api/graph/rebuild" && request.method === "POST") {
-        if (!sameOrigin(request, network, deps.config.publicOrigin)) return json({ error: "Origin not allowed" }, 403);
+        if (!sameOrigin(request, observedNetwork, deps.config.publicOrigin)) return json({ error: "Origin not allowed" }, 403);
         if (deps.graph.getRebuildStatus().state === "running") return json(deps.graph.startRebuild(), 202);
         const waitMs = deps.config.rebuildMinIntervalSeconds * 1_000 - (now() - lastRebuildAt);
         if (waitMs > 0) return json({ error: "Rebuild rate limit exceeded" }, 429, { "Retry-After": String(Math.ceil(waitMs / 1_000)) });

@@ -34,10 +34,12 @@ test("selection reuses factories and morph buffers", async ({ page }) => {
   ).length), { timeout: 10_000 }).toBeGreaterThan(0);
   await page.waitForTimeout(700);
   const searchDialog = page.getByRole("dialog", { name: "Memory Map 검색" });
+  const searchInput = searchDialog.getByRole("combobox");
 
   const toggleSelection = async () => {
     await page.keyboard.press("Control+K");
     await expect(searchDialog).toBeVisible();
+    await expect(searchInput).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(graph).not.toHaveAttribute("data-selected-id", "");
     await page.keyboard.press("Escape");

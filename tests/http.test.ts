@@ -43,6 +43,88 @@ const graph = {
 } as GraphHttpService;
 
 describe("side-effect-free HTTP handler", () => {
+  test("uses a canonical HTTPS origin for transport security without trusting forwarded client identities", async () => {
+    const appConfig = config();
+    appConfig.publicOrigin = "https://gd.uaysk.com";
+    appConfig.auth.maxAttempts = 1;
+    const auth = new AuthService(appConfig.auth);
+    const handler = createHttpHandler({
+      config: appConfig,
+      graph,
+      auth,
+      controlCenter: {
+        getOverview: async () => { throw new Error("unused"); },
+        getDreamRunDetail: () => ({ status: "unavailable" }),
+        invalidate: () => undefined,
+      },
+      controlActions: { enabled: false, execute: async () => { throw new Error("unused"); } },
+    });
+    const login = (password: string, forwardedFor: string) => handler(new Request("http://internal:3000/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Origin: appConfig.publicOrigin!,
+        "X-Forwarded-For": forwardedFor,
+        "X-Forwarded-Proto": "https",
+      },
+      body: new URLSearchParams({ password }),
+    }), { address: "10.0.0.2", secure: false });
+
+    const successful = await login(appConfig.auth.password, "198.51.100.1");
+    expect(successful.status).toBe(303);
+    const setCookie = successful.headers.get("set-cookie")!;
+    expect(setCookie).toContain("; HttpOnly");
+    expect(setCookie).toContain("; SameSite=Strict");
+    expect(setCookie).toContain("; Secure");
+    expect(successful.headers.get("strict-transport-security")).toContain("max-age=");
+
+    const directOrigin = await handler(new Request("http://internal:3000/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "http://internal:3000" },
+      body: new URLSearchParams({ password: appConfig.auth.password }),
+    }), { address: "10.0.0.2", secure: false });
+    expect(directOrigin.status).toBe(303);
+    expect(directOrigin.headers.get("set-cookie")).toContain("; Secure");
+
+    const cookie = setCookie.split(";", 1)[0]!;
+    const logout = await handler(new Request("http://internal:3000/auth/logout", {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: appConfig.publicOrigin! },
+    }), { address: "10.0.0.2", secure: false });
+    expect(logout.headers.get("set-cookie")).toContain("Max-Age=0; Secure");
+
+    const rejectedOrigin = await handler(new Request("http://internal:3000/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://attacker.example" },
+      body: new URLSearchParams({ password: appConfig.auth.password }),
+    }), { address: "10.0.0.2", secure: false });
+    expect(rejectedOrigin.status).toBe(403);
+    expect(rejectedOrigin.headers.get("set-cookie")).toBeNull();
+
+    expect((await login("wrong", "198.51.100.2")).status).toBe(401);
+    expect((await login("wrong", "198.51.100.3")).status).toBe(429);
+
+    const localConfig = config();
+    const localHandler = createHttpHandler({
+      config: localConfig,
+      graph,
+      auth: new AuthService(localConfig.auth),
+      controlCenter: {
+        getOverview: async () => { throw new Error("unused"); },
+        getDreamRunDetail: () => ({ status: "unavailable" }),
+        invalidate: () => undefined,
+      },
+      controlActions: { enabled: false, execute: async () => { throw new Error("unused"); } },
+    });
+    const localLogin = await localHandler(new Request("http://127.0.0.1:3000/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "http://127.0.0.1:3000" },
+      body: new URLSearchParams({ password: localConfig.auth.password }),
+    }), { address: "127.0.0.1", secure: false });
+    expect(localLogin.headers.get("set-cookie")).not.toContain("; Secure");
+    expect(localLogin.headers.get("strict-transport-security")).toBeNull();
+  });
+
   test("serves only GET/HEAD static files and caches only hashed assets immutably", async () => {
     const dist = await mkdtemp(join(tmpdir(), "gbrain-http-"));
     directories.push(dist);

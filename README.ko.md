@@ -248,7 +248,7 @@ server {
 }
 ```
 
-외부 origin을 사용하면 `.env`에 `APP_PUBLIC_ORIGIN=https://memory.example.com`을 지정하십시오. 서버는 POST rebuild의 Origin을 검사하고 기본 15초 rate limit을 적용합니다. Rebuild는 백그라운드 job으로 시작되며 트랜잭션에 기본 600초의 별도 statement timeout을 적용합니다. HTTP 요청은 즉시 202를 반환하고, 다른 DB 요청은 DB role의 기존 timeout을 유지합니다. CSP, frame 차단, MIME sniffing 차단, referrer/permissions 정책과 HTTPS 전달 시 HSTS도 응답에 추가합니다.
+외부 origin을 사용하면 `.env`에 canonical origin인 `APP_PUBLIC_ORIGIN=https://memory.example.com`을 지정하십시오. HTTPS public origin은 TLS가 Bun 앞에서 종료되더라도 세션 쿠키에 `Secure`를 붙이고 HSTS를 활성화합니다. `APP_TRUST_PROXY_HOPS`는 별도 경계입니다. 전달된 client IP/protocol header를 신뢰해야 할 때만 검증된 정확한 proxy 깊이를 지정하고, 그 외에는 기본값 `0`을 유지하십시오. 서버는 POST rebuild의 Origin을 검사하고 기본 15초 rate limit을 적용합니다. Rebuild는 백그라운드 job으로 시작되며 트랜잭션에 기본 600초의 별도 statement timeout을 적용합니다. HTTP 요청은 즉시 202를 반환하고, 다른 DB 요청은 DB role의 기존 timeout을 유지합니다. CSP, frame 차단, MIME sniffing 차단과 referrer/permissions 정책도 응답에 추가합니다.
 
 ## 테스트
 

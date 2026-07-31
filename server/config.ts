@@ -51,6 +51,25 @@ function optionalHttpUrl(name: string, allowInsecureHttp: boolean): string | nul
   return url.toString();
 }
 
+export function normalizePublicOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error("APP_PUBLIC_ORIGIN must be a valid HTTP(S) origin");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("APP_PUBLIC_ORIGIN must use HTTP or HTTPS");
+  }
+  if (url.username || url.password) throw new Error("APP_PUBLIC_ORIGIN must not contain credentials");
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("APP_PUBLIC_ORIGIN must not contain a path, query, or fragment");
+  }
+  return url.origin;
+}
+
 export function loadConfig(): Config {
   const port = Number(process.env.GBRAIN_DB_PORT ?? "5432");
   const appPort = Number(process.env.APP_PORT ?? "3000");
@@ -128,7 +147,7 @@ export function loadConfig(): Config {
     host: process.env.APP_HOST?.trim() || "127.0.0.1",
     port: appPort,
     trustProxyHops,
-    publicOrigin: process.env.APP_PUBLIC_ORIGIN?.trim().replace(/\/$/, "") || null,
+    publicOrigin: normalizePublicOrigin(process.env.APP_PUBLIC_ORIGIN),
     rebuildMinIntervalSeconds,
     rebuildStatementTimeoutSeconds,
     semanticCandidateChunks,

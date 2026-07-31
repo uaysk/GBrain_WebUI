@@ -12,7 +12,7 @@
     "typecheck": "tsc -b",
     "lint": "bun scripts/lint-architecture.ts",
     "start": "NODE_ENV=production bun server/index.ts",
-    "test": "bun test tests/architecture.test.ts tests/auth.test.ts tests/http.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/control-actions.test.ts tests/control-center.test.ts tests/control-client.test.ts tests/control-experience.test.ts tests/control-insights.test.ts tests/control-ui-state.test.ts tests/demo-memory.test.ts tests/dream-impact.test.ts tests/dream-inspector.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-search-index.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/map-url-state.test.ts tests/rebuild-resilience.test.ts tests/rendering.test.ts tests/style.test.ts",
+    "test": "bun test tests/architecture.test.ts tests/auth.test.ts tests/config.test.ts tests/http.test.ts tests/community.test.ts tests/community-labeling.test.ts tests/control-actions.test.ts tests/control-center.test.ts tests/control-client.test.ts tests/control-experience.test.ts tests/control-insights.test.ts tests/control-ui-state.test.ts tests/demo-memory.test.ts tests/dream-impact.test.ts tests/dream-inspector.test.ts tests/graph-history.test.ts tests/graph-layers.test.ts tests/graph-search-index.test.ts tests/graph-timeline.test.ts tests/interaction.test.ts tests/layout.test.ts tests/map-url-state.test.ts tests/rebuild-resilience.test.ts tests/rendering.test.ts tests/style.test.ts",
     "test:smoke": "bun test tests/smoke.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:live": "playwright test --config=playwright.live.config.ts e2e/control-center-live.spec.ts",

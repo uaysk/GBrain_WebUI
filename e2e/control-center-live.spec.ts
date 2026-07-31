@@ -46,6 +46,10 @@ test("renders live GBrain operations data without exposing a CLI or credential s
     new URL(response.url()).pathname === "/api/control-center"
     && response.request().method() === "GET"
     && response.status() === 200);
+  const detailResponse = page.waitForResponse((response) =>
+    /^\/api\/control-center\/dream-runs\/\d+$/.test(new URL(response.url()).pathname)
+    && response.request().method() === "GET"
+    && response.status() === 200);
   await page.goto("/control/", { waitUntil: "domcontentloaded" });
   await loginIfNeeded(page);
 
@@ -59,7 +63,7 @@ test("renders live GBrain operations data without exposing a CLI or credential s
   expect(payload.latestFullRun?.phases.length).toBeGreaterThan(0);
   expect(payload.latestTargetedRun).toBeTruthy();
   expect(payload.jobs.length).toBeGreaterThan(0);
-  const forbiddenKeys = new Set(["data", "lock_token", "idempotency_key", "stacktrace"]);
+  const forbiddenKeys = new Set(["data", "result", "logs", "error_text", "lock_token", "idempotency_key", "stacktrace"]);
   const leakedKeys: string[] = [];
   const inspectKeys = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -73,7 +77,11 @@ test("renders live GBrain operations data without exposing a CLI or credential s
     }
   };
   inspectKeys(payload);
-  const serializedPayload = JSON.stringify(payload);
+  const detailHttpResponse = await detailResponse;
+  expect(detailHttpResponse.headers()["cache-control"]).toContain("no-store");
+  const detailPayload = await detailHttpResponse.json() as unknown;
+  inspectKeys(detailPayload);
+  const serializedPayload = JSON.stringify([payload, detailPayload]);
   const leakedValues = [
     /gbrain_[0-9a-f]{32,}/i,
     /authorization/i,
@@ -89,7 +97,13 @@ test("renders live GBrain operations data without exposing a CLI or credential s
   await expect(page).toHaveTitle("GBrain Control Center");
   await expect(center).toContainText("Connected");
   await expect(center).toContainText(`GBrain ${payload.version}`);
-  await expect(center.getByRole("list", { name: "Dream 단계별 실행 결과" }).first()).toBeVisible();
+  const dreamInspector = center.getByTestId("dream-inspector");
+  await expect(dreamInspector).toBeVisible();
+  await expect(dreamInspector.getByRole("list", { name: "Dream 실행 이력" })).toBeVisible();
+  await dreamInspector.getByRole("tab", { name: "단계", exact: true }).click();
+  await expect(dreamInspector.getByRole("list", { name: "Dream 단계" })).toBeVisible();
+  await dreamInspector.getByRole("tab", { name: "영향 메모리", exact: true }).click();
+  await expect(dreamInspector.getByText(/개 메모리 영향/)).toBeVisible();
   await expect(center.getByTestId("operations-inbox")).toBeVisible();
   await expect(center.getByText("운영 추세", { exact: true })).toBeVisible();
   await expect(center.getByTestId("control-job-filters")).toBeVisible();
