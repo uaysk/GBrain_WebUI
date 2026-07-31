@@ -1,0 +1,38 @@
+[Unit]
+Description=GBrain WebUI native Graphify MCP
+After=network.target
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/uaysk/GBrain_WebUI
+ExecStart=/home/uaysk/.local/bin/graphify-mcp /home/uaysk/GBrain_WebUI/graphify-out/graph.json --transport http --host 127.0.0.1 --port 8085 --json-response --stateless
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

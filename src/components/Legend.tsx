@@ -15,27 +15,31 @@ const polygonPoints: Record<string, string> = {
 
 function initialExpanded() {
   if (typeof window === "undefined") return true;
-  return window.localStorage.getItem(STORAGE_KEY) !== "false";
+  try { return window.localStorage.getItem(STORAGE_KEY) !== "false"; } catch { return true; }
 }
 
-export function Legend() {
-  const [expanded, setExpanded] = useState(initialExpanded);
+export function Legend({ embedded = false }: { embedded?: boolean }) {
+  const [expanded, setExpanded] = useState(() => embedded || initialExpanded());
   const toggle = () => setExpanded((current) => {
-    window.localStorage.setItem(STORAGE_KEY, String(!current));
+    try { window.localStorage.setItem(STORAGE_KEY, String(!current)); } catch { /* storage is optional */ }
     return !current;
   });
   return (
-    <aside className="pointer-events-auto absolute left-3 top-3 z-30 w-[min(340px,calc(100vw-24px))] rounded-lg bg-zinc-900/90 text-[10px] text-zinc-300 backdrop-blur-sm" aria-label="Graph legend">
-      <button
-        type="button"
-        data-testid="legend-toggle"
-        aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-800 focus-visible:bg-zinc-700 focus-visible:outline-none"
-        onClick={toggle}
-      >
-        <span className="font-semibold uppercase tracking-[0.14em] text-zinc-100">Visual legend</span>
-        <span className="flex items-center gap-1.5 text-zinc-500">{expanded ? "Collapse" : "Expand"}{expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</span>
-      </button>
+    <aside className={embedded
+      ? "pointer-events-auto w-full rounded-lg bg-zinc-900/90 text-[10px] text-zinc-300"
+      : "pointer-events-auto absolute left-3 top-3 z-30 hidden w-[min(340px,calc(100vw-24px))] rounded-lg bg-zinc-900/90 text-[10px] text-zinc-300 backdrop-blur-sm md:block"} aria-label="Graph legend">
+      {embedded
+        ? <div className="flex w-full items-center px-3 py-2.5"><span className="font-semibold uppercase tracking-[0.14em] text-zinc-100">Visual legend</span></div>
+        : <button
+          type="button"
+          data-testid="legend-toggle"
+          aria-expanded={expanded}
+          className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-800 focus-visible:bg-zinc-700 focus-visible:outline-none"
+          onClick={toggle}
+        >
+          <span className="font-semibold uppercase tracking-[0.14em] text-zinc-100">Visual legend</span>
+          <span className="flex items-center gap-1.5 text-zinc-500">{expanded ? "Collapse" : "Expand"}{expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</span>
+        </button>}
       {expanded && <div data-testid="legend-content" className="px-3 pb-3 pt-1">
         <div className="mb-1.5 text-zinc-500">Node shape = page type · color = Leiden community</div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">

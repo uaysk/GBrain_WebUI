@@ -1,0 +1,39 @@
+[Unit]
+Description=GBrain WebUI Graphify HTML visualization
+After=network.target
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/home/uaysk/GBrain_WebUI
+ExecStart=/usr/bin/python3 -m http.server 8084 --bind 127.0.0.1 --directory /home/uaysk/GBrain_WebUI/graphify-out
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

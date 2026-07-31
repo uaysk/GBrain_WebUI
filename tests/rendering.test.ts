@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { billboardVertices } from "../src/graph/node-billboard";
-import { COMMUNITY_LABEL_STYLE, communityLabelTitle, connectedNodeIdsForGroup, pixelAlignedLabelOrigin } from "../src/graph/community-label";
+import { COMMUNITY_LABEL_STYLE, communityLabelTitle, connectedNodeIdsForGroup, pixelAlignedLabelOrigin, placeCommunityLabels } from "../src/graph/community-label";
 import { edgeSegmentPositions } from "../src/graph/rendering";
 import { haloTransformForNodes, nodesInCommunityHalo } from "../src/graph/halo";
 import { NODE_RADIUS_SCALE, UNCLASSIFIED_NODE_COLOR, type GraphEdge, type NodeShape } from "../src/types";
@@ -42,6 +42,24 @@ describe("community labels", () => {
       "one",
     );
     expect([...focused].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  test("places priority labels first and deterministically avoids overlaps and reserved overlays", () => {
+    const candidates = [
+      { id: "low", anchor: { x: 100, y: 100 }, size: { width: 50, height: 20 } },
+      { id: "focused", anchor: { x: 100, y: 100 }, size: { width: 60, height: 20 }, priority: 3 },
+    ];
+    const reserved = [{ left: 0, top: 0, width: 60, height: 60 }];
+    const first = placeCommunityLabels(candidates, { width: 240, height: 180 }, reserved);
+    const second = placeCommunityLabels([...candidates].reverse(), { width: 240, height: 180 }, reserved);
+    expect(first).toEqual(second);
+    expect(first[0]?.id).toBe("focused");
+    const visible = first.filter((item) => item.visible);
+    expect(visible).toHaveLength(2);
+    expect(visible[0]!.left + visible[0]!.width <= visible[1]!.left
+      || visible[1]!.left + visible[1]!.width <= visible[0]!.left
+      || visible[0]!.top + visible[0]!.height <= visible[1]!.top
+      || visible[1]!.top + visible[1]!.height <= visible[0]!.top).toBe(true);
   });
 });
 

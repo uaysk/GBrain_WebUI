@@ -1,5 +1,5 @@
 import { detectLeidenCommunities } from "../server/community";
-import type { GraphResponse } from "../src/types";
+import type { GraphResponse } from "../shared/contracts";
 
 const path = process.argv[2] ?? "/tmp/gbrain-graph.json";
 const graph = await Bun.file(path).json() as GraphResponse;

@@ -4,6 +4,7 @@ import type {
   ControlActionRequest,
   ControlActionResult,
   ControlCenterResponse,
+  ControlDreamRunDetail,
   ControlRun,
 } from "../src/types";
 
@@ -56,6 +57,38 @@ const latestRun: ControlRun = {
     { key: "orphans_found", label: "고립 페이지", value: 2, tone: "warning" },
   ],
   warnings: ["Fact 색인: 두 항목은 근거가 부족해 자동 반영하지 않았습니다."],
+};
+
+const previousRun: ControlRun = {
+  ...latestRun,
+  id: 491,
+  startedAt: "2026-07-25T02:00:00.000Z",
+  finishedAt: "2026-07-25T02:04:10.000Z",
+  durationMs: 250_000,
+  impacts: latestRun.impacts.map((metric) => metric.key === "pages_embedded" ? { ...metric, value: 18 } : metric),
+};
+
+const dreamDetail: ControlDreamRunDetail = {
+  snapshotGeneratedAt: "2026-07-26T02:05:00.000Z",
+  stale: false,
+  run: latestRun,
+  previousRun,
+  comparison: {
+    metrics: [{ key: "pages_embedded", label: "Embedding 페이지", previous: 18, current: 23, delta: 5 }],
+  },
+  findings: [{
+    id: "warning:extract_facts:0",
+    kind: "warning",
+    phase: "extract_facts",
+    label: "Fact 색인 경고",
+    detail: "두 항목은 근거가 부족해 자동 반영하지 않았습니다.",
+  }],
+  affectedPages: {
+    items: [{ sourceId: "demo", slug: "atlas-workspace", phases: ["extract_facts", "embed"] }],
+    total: 2,
+    truncated: false,
+    coverage: "partial",
+  },
 };
 
 const controlFixture: ControlCenterResponse = {
@@ -180,6 +213,13 @@ const controlFixture: ControlCenterResponse = {
       run: latestRun,
     },
   ],
+  dreamRuns: [latestRun, previousRun],
+  quality: {
+    status: "fresh",
+    recentJobs: "fresh",
+    sourceDreamRuns: "fresh",
+    globalDreamRuns: "fresh",
+  },
 };
 
 async function loginIfNeeded(page: Page) {
@@ -194,6 +234,7 @@ async function loginIfNeeded(page: Page) {
 }
 
 test("visualizes Dream and job results without a CLI or raw JSON surface", async ({ page }) => {
+  test.setTimeout(120_000);
   const consoleErrors: string[] = [];
   const actionRequests: ControlActionRequest[] = [];
   const actionRequestHeaders: Record<string, string>[] = [];
@@ -208,6 +249,19 @@ test("visualizes Dream and job results without a CLI or raw JSON surface", async
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(controlFixture),
+      });
+      return;
+    }
+
+    if (pathname === "/api/control-center/dream-runs/501" && request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...dreamDetail,
+          rawJob: { credential: "dom-must-not-copy" },
+          stacktrace: "dom-must-not-copy-stack",
+        }),
       });
       return;
     }
@@ -266,7 +320,7 @@ test("visualizes Dream and job results without a CLI or raw JSON surface", async
   await expect(center).toContainText("97.2%");
   await expect(center).toContainText("Dream · Source cycle");
   await expect(center).toContainText("최근 12개 작업");
-  await expect(center.getByRole("list", { name: "Dream 단계별 실행 결과" }).first()).toBeVisible();
+  await expect(center.getByTestId("dream-inspector")).toBeVisible();
   await expect(center.getByTestId("control-job-progress")).toBeVisible();
   await expect(center.getByTestId("operations-inbox")).toContainText("운영 인박스");
   await expect(center.getByText("운영 추세", { exact: true })).toBeVisible();
@@ -276,8 +330,38 @@ test("visualizes Dream and job results without a CLI or raw JSON surface", async
   await expect(center).not.toContainText("raw JSON");
   await expect(center).not.toContainText("$ gbrain");
 
-  await center.getByText("Fact 색인").first().click();
-  await expect(center).toContainText("새 사실을 색인했고 검토가 필요한 항목을 분리했습니다.");
+  const inspector = center.getByTestId("dream-inspector");
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByRole("list", { name: "Dream 실행 이력" })).toContainText("#501");
+  await expect(inspector).toContainText("Fact 색인 경고");
+  await expect(page.locator("body")).not.toContainText("dom-must-not-copy");
+  await inspector.getByRole("tab", { name: "이전 실행 비교" }).click();
+  await expect(page).toHaveURL(/run=501.*tab=comparison/);
+  await expect(inspector).toContainText("+5");
+  await inspector.getByRole("tab", { name: "영향 메모리" }).click();
+  await expect(page).toHaveURL(/run=501.*tab=affected/);
+  await expect(inspector).toContainText("명시적인 sync·synthesize page ref만 표시합니다");
+  const mapImpactLink = inspector.getByRole("link", { name: "Map에서 보기" });
+  await expect(mapImpactLink).toHaveAttribute("href", "/?dreamRun=501");
+  await mapImpactLink.click();
+  await expect(page.getByTestId("memory-graph")).toBeVisible();
+  const impactPanel = page.getByTestId("dream-impact-panel");
+  await expect(impactPanel).toContainText("Dream #501 impact");
+  await expect(impactPanel).toContainText("구조화된 legacy ref만 강조합니다");
+  await expect(impactPanel).toContainText("Atlas Workspace");
+  await impactPanel.getByRole("button", { name: "Atlas Workspace" }).click();
+  await expect(page.getByTestId("memory-graph")).toHaveAttribute("data-selected-id", "demo::atlas-workspace");
+  await page.goBack();
+  await expect(page.getByTestId("dream-impact-panel")).toBeVisible();
+  await expect(page.getByTestId("memory-graph")).toHaveAttribute("data-selected-id", "");
+  await page.goBack();
+  await expect(page.getByTestId("control-center")).toBeVisible();
+  await expect(page).toHaveURL(/\/control\?.*run=501.*tab=affected/);
+
+  const restoredInspector = center.getByTestId("dream-inspector");
+  await restoredInspector.getByRole("tab", { name: "단계", exact: true }).click();
+  await restoredInspector.getByRole("list", { name: "Dream 단계" }).getByText("Fact 색인").click();
+  await expect(restoredInspector).toContainText("새 사실을 색인했고 검토가 필요한 항목을 분리했습니다.");
 
   await center.getByRole("button", { name: "Primary memory 상세 보기" }).click();
   const sourceDrawer = page.getByTestId("source-detail-drawer");

@@ -1,7 +1,7 @@
 import postgres, { type Sql } from "postgres";
 import type { Config } from "./config";
 
-export function createDb(config: Config): Sql {
+export function createDb(config: Pick<Config, "db">): Sql {
   return postgres({
     host: config.db.host,
     port: config.db.port,

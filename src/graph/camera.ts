@@ -4,6 +4,11 @@ import type { MapViewMode } from "./layout-2d";
 interface Point3 { x: number; y: number; z: number }
 export interface CameraPose { position: Point3; target: Point3 }
 
+export function cameraFocusDelayMs(dimensionChanging: boolean, reducedMotion: boolean): number {
+  if (reducedMotion) return 0;
+  return dimensionChanging ? 1_140 : 90;
+}
+
 export function cameraPoseForNodes(
   nodes: Array<Pick<GraphNode, "x" | "y" | "z">>,
   viewMode: MapViewMode,

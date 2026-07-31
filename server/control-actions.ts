@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   lstat,
@@ -9,16 +9,33 @@ import {
   unlink,
 } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
   ControlActionJob,
   ControlActionName,
   ControlActionRequest,
   ControlActionResult,
   ControlJobStatus,
-} from "../src/types";
+} from "../shared/contracts";
 import type { Config } from "./config";
+import {
+  ACTOR_HASH_PATTERN,
+  ControlActionError,
+  SOURCE_ID_PATTERN,
+  UUID_V4_PATTERN,
+  controlActionRequestHash as requestHash,
+  controlActionRequestTarget as requestTarget,
+  parseControlActionIdempotencyKey,
+  parseControlActionRequest,
+  safeControlActorHash as safeActorHash,
+  validateControlActionRequest as validateRequest,
+} from "./control-action-policy";
+import { McpToolClient } from "./mcp-client";
+
+export {
+  ControlActionError,
+  parseControlActionIdempotencyKey,
+  parseControlActionRequest,
+} from "./control-action-policy";
 
 type JsonRecord = Record<string, unknown>;
 type ControlActionConfig = Config["controlCenter"] & {
@@ -113,9 +130,6 @@ export interface ControlActionConnector {
 const LEDGER_VERSION = 1;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_COOLDOWN_MS = 10_000;
-const SOURCE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ACTOR_HASH_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const ACTIVE_JOB_STATUSES = new Set([
   "waiting",
   "waiting-children",
@@ -228,98 +242,6 @@ function decodeToolPayload(value: unknown): unknown {
     }
   }
   return value;
-}
-
-function expectedConfirmation(request: ControlActionRequest): string {
-  switch (request.action) {
-    case "quick-dream":
-      return `RUN ${request.sourceId}`;
-    case "source-sync":
-      return `SYNC ${request.sourceId}`;
-    case "embedding-refresh":
-      return `EMBED ${request.sourceId}`;
-    case "job-retry":
-      return `RETRY #${request.jobId}`;
-    case "job-cancel":
-      return `CANCEL #${request.jobId}`;
-  }
-}
-
-function validateRequest(value: unknown): ControlActionRequest {
-  const body = record(value);
-  const action = body.action;
-  if (
-    action === "quick-dream"
-    || action === "source-sync"
-    || action === "embedding-refresh"
-  ) {
-    if (!exactKeys(body, ["action", "sourceId", "confirmation"])) {
-      throw new ControlActionError(400, "invalid_request", "허용되지 않은 요청 필드가 있습니다.");
-    }
-    if (typeof body.sourceId !== "string" || !SOURCE_ID_PATTERN.test(body.sourceId)) {
-      throw new ControlActionError(400, "invalid_source", "올바른 소스 ID가 필요합니다.");
-    }
-    if (typeof body.confirmation !== "string") {
-      throw new ControlActionError(400, "invalid_confirmation", "확인 문구가 필요합니다.");
-    }
-    const request = body as unknown as ControlActionRequest;
-    if (request.confirmation !== expectedConfirmation(request)) {
-      throw new ControlActionError(400, "invalid_confirmation", "확인 문구가 일치하지 않습니다.");
-    }
-    return request;
-  }
-
-  if (action === "job-retry" || action === "job-cancel") {
-    if (!exactKeys(body, ["action", "jobId", "expectedStatus", "confirmation"])) {
-      throw new ControlActionError(400, "invalid_request", "허용되지 않은 요청 필드가 있습니다.");
-    }
-    const jobId = positiveInteger(body.jobId);
-    if (!jobId) throw new ControlActionError(400, "invalid_job", "올바른 작업 ID가 필요합니다.");
-    const validExpected = action === "job-retry"
-      ? body.expectedStatus === "failed" || body.expectedStatus === "dead"
-      : body.expectedStatus === "waiting" || body.expectedStatus === "delayed";
-    if (!validExpected) {
-      throw new ControlActionError(400, "invalid_expected_status", "작업 상태 조건이 올바르지 않습니다.");
-    }
-    if (typeof body.confirmation !== "string") {
-      throw new ControlActionError(400, "invalid_confirmation", "확인 문구가 필요합니다.");
-    }
-    const request = body as unknown as ControlActionRequest;
-    if (request.confirmation !== expectedConfirmation(request)) {
-      throw new ControlActionError(400, "invalid_confirmation", "확인 문구가 일치하지 않습니다.");
-    }
-    return request;
-  }
-
-  throw new ControlActionError(400, "invalid_action", "지원하지 않는 관리 작업입니다.");
-}
-
-function canonicalRequest(request: ControlActionRequest): string {
-  if ("sourceId" in request) {
-    return JSON.stringify({
-      action: request.action,
-      sourceId: request.sourceId,
-      confirmation: request.confirmation,
-    });
-  }
-  return JSON.stringify({
-    action: request.action,
-    jobId: request.jobId,
-    expectedStatus: request.expectedStatus,
-    confirmation: request.confirmation,
-  });
-}
-
-function requestTarget(request: ControlActionRequest): string {
-  return "sourceId" in request ? `source:${request.sourceId}` : `job:${request.jobId}`;
-}
-
-function requestHash(request: ControlActionRequest): string {
-  return createHash("sha256").update(canonicalRequest(request)).digest("hex");
-}
-
-function safeActorHash(value: string | undefined): string | undefined {
-  return value && ACTOR_HASH_PATTERN.test(value) ? value : undefined;
 }
 
 function sourceList(value: unknown): unknown[] {
@@ -537,92 +459,23 @@ function validLedgerRecord(value: unknown): value is LedgerRecord {
   );
 }
 
-export class ControlActionError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly retryAfterSeconds?: number,
-  ) {
-    super(message);
-    this.name = "ControlActionError";
-  }
-}
-
-export function parseControlActionRequest(raw: string): ControlActionRequest {
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    throw new ControlActionError(400, "invalid_json", "올바른 JSON 요청이 필요합니다.");
-  }
-  return validateRequest(value);
-}
-
-export function parseControlActionIdempotencyKey(value: string | null | undefined): string {
-  if (!value || !UUID_V4_PATTERN.test(value)) {
-    throw new ControlActionError(
-      400,
-      "invalid_idempotency_key",
-      "UUID v4 형식의 Idempotency-Key가 필요합니다.",
-    );
-  }
-  return value;
-}
-
 export class McpControlActionConnector implements ControlActionConnector {
-  private client: Client | null = null;
-  private transport: StreamableHTTPClientTransport | null = null;
-  private connecting: Promise<Client> | null = null;
+  private readonly client: McpToolClient;
 
   constructor(
-    private readonly url: string,
-    private readonly token: string,
-    private readonly timeoutMs: number,
-  ) {}
-
-  private async connectedClient(): Promise<Client> {
-    if (this.client) return this.client;
-    if (this.connecting) return this.connecting;
-    this.connecting = (async () => {
-      const transport = new StreamableHTTPClientTransport(new URL(this.url), {
-        requestInit: { headers: { Authorization: `Bearer ${this.token}` } },
-      });
-      const client = new Client(
-        { name: "gbrain-webui-control-actions", version: "1.0.0" },
-        { capabilities: {} },
-      );
-      await client.connect(transport, { timeout: this.timeoutMs });
-      this.transport = transport;
-      this.client = client;
-      return client;
-    })().finally(() => {
-      this.connecting = null;
-    });
-    return this.connecting;
+    url: string,
+    token: string,
+    timeoutMs: number,
+  ) {
+    this.client = new McpToolClient(url, token, timeoutMs, "gbrain-webui-control-actions-mutation");
   }
 
   async callTool(name: ToolName, args: JsonRecord): Promise<unknown> {
-    try {
-      const client = await this.connectedClient();
-      const result = await client.callTool(
-        { name, arguments: args },
-        undefined,
-        { timeout: this.timeoutMs },
-      );
-      return decodeToolPayload(result);
-    } catch (error) {
-      await this.close();
-      throw error;
-    }
+    return decodeToolPayload(await this.client.callTool(name, args));
   }
 
   async close(): Promise<void> {
-    const client = this.client;
-    this.client = null;
-    this.transport = null;
-    this.connecting = null;
-    if (client) await client.close().catch(() => undefined);
+    await this.client.close();
   }
 }
 

@@ -1,4 +1,4 @@
-import type { GraphTimelineNode, GraphTimelineResponse } from "../src/types";
+import type { GraphTimelineNode, GraphTimelineResponse } from "../shared/contracts";
 
 export interface HistoryPageRow {
   id: number;

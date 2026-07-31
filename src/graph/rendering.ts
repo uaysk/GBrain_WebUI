@@ -4,12 +4,14 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { NODE_RADIUS_SCALE, NODE_SELECTED_SCALE, type GraphEdge, type GraphNode } from "../types";
-import { createNodeBillboard } from "./node-billboard";
+import { BillboardTexturePool, createNodeBillboard, type BillboardState } from "./node-billboard";
 
-export function createNodeObject(node: GraphNode, state: { selected: boolean; adjacent: boolean; dimmed: boolean; showLabel: boolean; historyChanged?: boolean }) {
+export type NodeRenderState = BillboardState & { showLabel: boolean };
+
+export function createNodeObject(node: GraphNode, state: NodeRenderState, pool: BillboardTexturePool) {
   const group = new THREE.Group();
   const size = NODE_RADIUS_SCALE * node.size * (state.selected ? NODE_SELECTED_SCALE : 1);
-  const billboard = createNodeBillboard(node, state, size * 2);
+  const billboard = createNodeBillboard(node, state, size * 2, pool);
   billboard.userData.baseOpacity = billboard.material.opacity;
   group.name = "memory-node-object";
   group.userData.nodeId = node.id;
@@ -26,6 +28,36 @@ export function createNodeObject(node: GraphNode, state: { selected: boolean; ad
     group.add(label);
   }
   return group;
+}
+
+export function updateNodeObject(
+  object: THREE.Object3D,
+  node: GraphNode,
+  state: NodeRenderState,
+  pool: BillboardTexturePool,
+): void {
+  const sprite = object.children.find((child): child is THREE.Sprite => child instanceof THREE.Sprite && child.name === "node-billboard");
+  if (!sprite) return;
+  const size = NODE_RADIUS_SCALE * node.size * (state.selected ? NODE_SELECTED_SCALE : 1);
+  const signature = pool.signature(node, state);
+  if (sprite.userData.textureSignature !== signature) {
+    const previous = sprite.material.map;
+    sprite.material.map = pool.acquire(node, state);
+    sprite.material.needsUpdate = true;
+    sprite.userData.textureSignature = signature;
+    pool.release(previous);
+  }
+  sprite.scale.set(size * 2, size * 2, 1);
+  sprite.material.opacity = state.dimmed ? 0.13 : 0.96;
+  sprite.userData.baseOpacity = sprite.material.opacity;
+}
+
+export function disposeNodeObject(object: THREE.Object3D, pool: BillboardTexturePool): void {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Sprite)) return;
+    pool.release(child.material.map);
+    child.material.dispose();
+  });
 }
 
 interface Point { x: number; y: number; z: number }
@@ -77,6 +109,14 @@ export function createEdgeObject(edge: GraphEdge, emphasized: boolean, dimmed: b
   object.userData.edge = edge;
   object.userData.baseOpacity = material.opacity;
   return object;
+}
+
+export function updateEdgeAppearance(object: THREE.Object3D, edge: GraphEdge, emphasized: boolean, dimmed: boolean): void {
+  if (!(object instanceof LineSegments2)) return;
+  object.material.linewidth = emphasized ? edge.width * 1.2 : edge.width;
+  object.material.opacity = dimmed ? 0.035 : emphasized ? 0.94 : edge.kind === "semantic" ? 0.22 : 0.66;
+  object.userData.baseOpacity = object.material.opacity;
+  object.material.needsUpdate = true;
 }
 
 export function updateEdgeObject(object: THREE.Object3D, coordinates: { start: Point; end: Point }, edge: GraphEdge) {

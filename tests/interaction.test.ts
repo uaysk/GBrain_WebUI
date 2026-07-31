@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cameraPoseForNodes } from "../src/graph/camera";
+import { cameraFocusDelayMs, cameraPoseForNodes } from "../src/graph/camera";
 import { configureNavigationControls } from "../src/graph/navigation-controls";
 import { isSelectionClearKey } from "../src/graph/selection";
 import { MOUSE } from "three";
@@ -19,6 +19,13 @@ describe("focus mode helpers", () => {
   test("clears selection only for Escape", () => {
     expect(isSelectionClearKey("Escape")).toBe(true);
     expect(isSelectionClearKey("Enter")).toBe(false);
+  });
+
+  test("never delays camera focus for reduced motion", () => {
+    expect(cameraFocusDelayMs(true, true)).toBe(0);
+    expect(cameraFocusDelayMs(false, true)).toBe(0);
+    expect(cameraFocusDelayMs(true, false)).toBe(1_140);
+    expect(cameraFocusDelayMs(false, false)).toBe(90);
   });
 });
 

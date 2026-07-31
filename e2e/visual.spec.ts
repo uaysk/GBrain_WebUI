@@ -9,7 +9,8 @@ const sizes = [
 test("captures and validates the requested viewports", async ({ browser }) => {
   test.setTimeout(180_000);
   mkdirSync("screenshots", { recursive: true });
-  const target = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+  const targetBase = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+  const target = `${targetBase.replace(/\/$/, "")}/?graphDiagnostics=1`;
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
   const password = process.env.APP_AUTH_PASSWORD ?? readFileSync(".env", "utf8").match(/^APP_AUTH_PASSWORD=(.+)$/m)?.[1]?.trim();
@@ -141,12 +142,12 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await expect(timelineToggle).toHaveAttribute("aria-pressed", "false");
   await expect(timeline).toHaveCount(0);
   await expect(memoryGraph).toHaveAttribute("data-history-changed-count", "0");
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v2") ?? "null")?.timelineOn)).toBe(false);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v3") ?? "null")?.timelineOn)).toBe(false);
   await page.screenshot({ path: "screenshots/gbrain-memory-map-timeline-off.png" });
   await timelineToggle.click();
   await expect(timelineToggle).toHaveAttribute("aria-pressed", "true");
   await expect(timeline).toBeVisible();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v2") ?? "null")?.timelineOn)).toBe(true);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("gbrain-memory-map:explorer-state:v3") ?? "null")?.timelineOn)).toBe(true);
   await timelineSlider.fill("0");
   await expect(timeline).toHaveAttribute("data-frame-index", "0");
   await expect.poll(async () => Number(await timeline.getAttribute("data-visible-node-count"))).toBeGreaterThanOrEqual(staticNodeCount);
@@ -553,12 +554,12 @@ test("captures and validates the requested viewports", async ({ browser }) => {
   await expect(page.getByTestId("selected-summary")).toBeVisible();
   await expect(page.getByTestId("node-content")).toHaveAttribute("data-state", "ready", { timeout: 5_000 });
   await expect(page.getByTestId("memory-graph")).toHaveAttribute("data-selected-id", selectedId!);
-  const persistedState = await page.evaluate(() => localStorage.getItem("gbrain-memory-map:explorer-state:v2"));
+  const persistedState = await page.evaluate(() => localStorage.getItem("gbrain-memory-map:explorer-state:v3"));
   expect(persistedState).toBeTruthy();
   await page.locator("canvas").click({ position: { x: 5, y: 5 } });
   await expect(page.getByTestId("selected-summary")).toHaveCount(0);
   await expect(page.getByTestId("node-context-panel")).toHaveCount(0);
-  await page.evaluate((value) => localStorage.setItem("gbrain-memory-map:explorer-state:v2", value!), persistedState);
+  await page.evaluate((value) => localStorage.setItem("gbrain-memory-map:explorer-state:v3", value!), persistedState);
   await page.reload({ waitUntil: "networkidle" });
   await expect(page.getByTestId("selected-summary")).toBeVisible();
   await page.keyboard.press("Escape");

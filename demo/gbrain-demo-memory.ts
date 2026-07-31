@@ -7,8 +7,8 @@ import type {
   NodeDetailResponse,
   RelationFamily,
   StatusResponse,
-} from "../src/api/types";
-import { RELATION_VISUALS, shapeForType } from "../src/graph/visual-spec";
+} from "../shared/contracts";
+import { RELATION_VISUALS, shapeForType } from "../shared/graph-visuals";
 
 interface DemoPageSeed {
   slug: string;

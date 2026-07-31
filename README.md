@@ -63,6 +63,8 @@ LEIDEN_SEED=84
 APP_HOST=127.0.0.1
 APP_PORT=3000
 APP_PUBLIC_ORIGIN=
+# Keep 0 unless the exact reverse-proxy hop count is known (one local Caddy/Nginx = 1).
+APP_TRUST_PROXY_HOPS=0
 APP_REBUILD_MIN_INTERVAL_SECONDS=15
 APP_REBUILD_STATEMENT_TIMEOUT_SECONDS=600
 APP_SEMANTIC_CANDIDATE_CHUNKS=64
@@ -222,7 +224,7 @@ Each shape uses its semantic-group color with a thin black border. Nodes without
 
 Memory-map snapshot generation remains read-only and begins with `SET TRANSACTION READ ONLY`. The production database role should receive only `SELECT` on the required tables and no `INSERT`, `UPDATE`, or `DELETE` privileges. When guarded management is enabled, mutations use the separate server-only MCP credential and only the fixed action registry described above; the browser and PostgreSQL visualization role never receive write access.
 
-The default `APP_HOST=127.0.0.1` is intentional. Do not bind Bun directly to the public internet; place a reverse proxy on the same host in front of it. Password authentication is the app's baseline defense, and the reverse proxy must also provide TLS. Add proxy-level OIDC or a VPN when stronger access control is required. Because graph data can contain private memory metadata, every `/api/*` endpoint requires an authenticated session. The public `/healthz` endpoint returns only `ok`, without status details or database information.
+The default `APP_HOST=127.0.0.1` is intentional. Do not bind Bun directly to the public internet; place a reverse proxy on the same host in front of it. Password authentication is the app's baseline defense, and the reverse proxy must also provide TLS. Add proxy-level OIDC or a VPN when stronger access control is required. Because graph data can contain private memory metadata, every `/api/*` endpoint requires an authenticated session. The public `/healthz` endpoint returns only `ok`, without status details or database information. `APP_TRUST_PROXY_HOPS` defaults to `0`, so forwarded client/protocol headers are ignored unless the deployment explicitly declares its exact proxy depth; a single same-host Caddy or Nginx proxy uses `1`.
 
 Caddy example:
 
@@ -252,7 +254,7 @@ server {
 }
 ```
 
-When using an external origin, set `APP_PUBLIC_ORIGIN=https://memory.example.com` in `.env`. The server validates the origin of rebuild POST requests and applies a 15-second rate limit by default. Rebuild starts as a background job and uses a configurable 600-second transaction-local statement timeout. The HTTP request returns 202 immediately, while other database requests retain the database role's normal timeout. Responses also include a content security policy, frame denial, MIME sniffing protection, referrer and permissions policies, and HSTS when HTTPS forwarding is detected.
+When using an external origin, set `APP_PUBLIC_ORIGIN=https://memory.example.com` and the verified `APP_TRUST_PROXY_HOPS` count in `.env`. The server validates the origin of rebuild POST requests and applies a 15-second rate limit by default. Rebuild starts as a background job and uses a configurable 600-second transaction-local statement timeout. The HTTP request returns 202 immediately, while other database requests retain the database role's normal timeout. Responses also include a content security policy, frame denial, MIME sniffing protection, referrer and permissions policies, and HSTS when HTTPS is observed through the trusted boundary. Static files accept only GET/HEAD; HTML is revalidated and only content-hashed assets receive immutable caching.
 
 ## Tests
 

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sql } from "postgres";
 import { GraphService } from "../server/graph";
+import type { GraphBuildExecutor } from "../server/graph-build-executor";
+import { SnapshotStore } from "../server/snapshot-store";
 import type { Config } from "../server/config";
 import type { GraphResponse } from "../src/types";
 
@@ -26,7 +28,7 @@ function config(snapshotPath: string): Config {
       mutationsEnabled: false,
       actionLedgerPath: null,
     },
-    allowedSourceIds: ["default"], host: "127.0.0.1", port: 3000, publicOrigin: null,
+    allowedSourceIds: ["default"], host: "127.0.0.1", port: 3000, trustProxyHops: 0, publicOrigin: null,
     rebuildMinIntervalSeconds: 0, rebuildStatementTimeoutSeconds: 600,
     semanticCandidateChunks: 64, semanticHnswEfSearch: 80, snapshotPath,
   };
@@ -101,5 +103,57 @@ describe("graph rebuild resilience", () => {
     expect(service.getRebuildStatus()).toMatchObject({ state: "failed", snapshotAvailable: true, lastSuccessfulAt: expect.any(String) });
     expect(service.getRebuildStatus().error).not.toContain("simulated database outage");
     expect(JSON.parse(await readFile(snapshotPath, "utf8"))).toMatchObject({ version: 1, graph: expected });
+  });
+
+  test("does not activate an unpersisted result when durable storage fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gbrain-snapshot-"));
+    temporaryDirectories.push(directory);
+    const snapshotPath = join(directory, "graph.json");
+    class SwitchableStore extends SnapshotStore {
+      fail = false;
+      override async persist(result: BuildResult): Promise<void> {
+        if (this.fail) throw new Error("simulated fsync failure");
+        await super.persist(result);
+      }
+    }
+    const store = new SwitchableStore(snapshotPath);
+    const initial = graph("2026-07-19T05:00:00.000Z");
+    const replacement = graph("2026-07-20T05:00:00.000Z");
+    const service = new GraphService(null as unknown as Sql, config(snapshotPath), { snapshotStore: store });
+    (service as unknown as TestableGraphService).build = async () => ({ graph: initial, historyPages: [] });
+    service.startRebuild();
+    await waitForTerminalState(service);
+
+    store.fail = true;
+    const errorLog = spyOn(console, "error").mockImplementation(() => undefined);
+    (service as unknown as TestableGraphService).build = async () => ({ graph: replacement, historyPages: [] });
+    service.startRebuild();
+    await waitForTerminalState(service);
+    errorLog.mockRestore();
+
+    expect(service.cached?.generatedAt).toBe(initial.generatedAt);
+    expect(service.getRebuildStatus()).toMatchObject({ state: "failed", snapshotAvailable: true });
+    expect(JSON.parse(await readFile(snapshotPath, "utf8"))).toMatchObject({ graph: initial });
+  });
+
+  test("bounds shutdown even if an executor close never settles", async () => {
+    const expected = graph("2026-07-19T05:00:00.000Z");
+    const executor: GraphBuildExecutor = {
+      async build() { return { graph: expected, historyPages: [] }; },
+      close() { return new Promise<void>(() => undefined); },
+    };
+    const service = new GraphService(null as unknown as Sql, config(""), {
+      executor,
+      snapshotStore: new SnapshotStore(null),
+      shutdownTimeoutMs: 10,
+    });
+    service.startRebuild();
+    await waitForTerminalState(service);
+    const errorLog = spyOn(console, "error").mockImplementation(() => undefined);
+    const started = performance.now();
+    await service.close();
+    errorLog.mockRestore();
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(service.cached).toEqual(expected);
   });
 });

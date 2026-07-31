@@ -1,5 +1,5 @@
-import type { RelationFamily } from "../src/types";
-import { RELATION_VISUALS, shapeForType } from "../src/graph/visual-spec";
+import type { RelationFamily } from "../shared/contracts";
+import { RELATION_VISUALS, shapeForType } from "../shared/graph-visuals";
 
 export { shapeForType };
 

@@ -6,6 +6,7 @@ export interface BillboardState {
   adjacent: boolean;
   dimmed: boolean;
   historyChanged?: boolean;
+  dreamAffected?: boolean;
 }
 
 const POLYGON_SIDES: Partial<Record<NodeShape, number>> = {
@@ -25,8 +26,6 @@ const ROTATION: Partial<Record<NodeShape, number>> = {
   hexagon: 0,
   octagon: Math.PI / 8,
 };
-
-const textureCache = new Map<string, THREE.CanvasTexture>();
 
 export function billboardVertices(shape: NodeShape): Array<[number, number]> {
   const sides = POLYGON_SIDES[shape];
@@ -53,11 +52,19 @@ function traceShape(context: CanvasRenderingContext2D, shape: NodeShape, radius:
   context.closePath();
 }
 
-function createBillboardTexture(node: GraphNode, state: BillboardState): THREE.CanvasTexture {
+function textureKey(node: GraphNode, state: BillboardState): string {
   const emphasis = state.selected ? "selected" : state.adjacent ? "adjacent" : "default";
-  const cacheKey = [node.shape, node.color, node.hasEmbedding ? "filled" : "outline", emphasis, state.historyChanged ? "changed" : "steady"].join("|");
-  const cached = textureCache.get(cacheKey);
-  if (cached) return cached;
+  return [
+    node.shape,
+    node.color,
+    node.hasEmbedding ? "filled" : "outline",
+    emphasis,
+    state.historyChanged ? "changed" : "steady",
+    state.dreamAffected ? "dream-affected" : "dream-steady",
+  ].join("|");
+}
+
+function renderBillboardTexture(node: GraphNode, state: BillboardState): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 160;
   canvas.height = 160;
@@ -71,6 +78,12 @@ function createBillboardTexture(node: GraphNode, state: BillboardState): THREE.C
   if (state.historyChanged) {
     traceShape(context, node.shape, 69);
     context.strokeStyle = "rgba(34,211,238,0.92)";
+    context.lineWidth = 6;
+    context.stroke();
+  }
+  if (state.dreamAffected) {
+    traceShape(context, node.shape, state.historyChanged ? 75 : 69);
+    context.strokeStyle = "rgba(244,114,182,0.96)";
     context.lineWidth = 6;
     context.stroke();
   }
@@ -103,12 +116,45 @@ function createBillboardTexture(node: GraphNode, state: BillboardState): THREE.C
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   texture.needsUpdate = true;
-  textureCache.set(cacheKey, texture);
   return texture;
 }
 
-export function createNodeBillboard(node: GraphNode, state: BillboardState, diameter: number): THREE.Sprite {
-  const texture = createBillboardTexture(node, state);
+export class BillboardTexturePool {
+  private readonly bases = new Map<string, THREE.CanvasTexture>();
+  private readonly clones = new Set<THREE.Texture>();
+
+  signature(node: GraphNode, state: BillboardState): string {
+    return textureKey(node, state);
+  }
+
+  acquire(node: GraphNode, state: BillboardState): THREE.Texture {
+    const key = textureKey(node, state);
+    let base = this.bases.get(key);
+    if (!base) {
+      base = renderBillboardTexture(node, state);
+      this.bases.set(key, base);
+    }
+    const texture = base.clone();
+    texture.needsUpdate = true;
+    this.clones.add(texture);
+    return texture;
+  }
+
+  release(texture: THREE.Texture | null | undefined): void {
+    if (!texture || !this.clones.delete(texture)) return;
+    texture.dispose();
+  }
+
+  dispose(): void {
+    for (const texture of this.clones) texture.dispose();
+    for (const texture of this.bases.values()) texture.dispose();
+    this.clones.clear();
+    this.bases.clear();
+  }
+}
+
+export function createNodeBillboard(node: GraphNode, state: BillboardState, diameter: number, pool: BillboardTexturePool): THREE.Sprite {
+  const texture = pool.acquire(node, state);
   const material = new THREE.SpriteMaterial({
     map: texture,
     color: "#ffffff",
@@ -124,5 +170,6 @@ export function createNodeBillboard(node: GraphNode, state: BillboardState, diam
   sprite.renderOrder = 10;
   sprite.scale.set(diameter, diameter, 1);
   sprite.userData.billboard = true;
+  sprite.userData.textureSignature = pool.signature(node, state);
   return sprite;
 }

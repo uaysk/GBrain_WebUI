@@ -1,6 +1,6 @@
 import leiden from "@aflsolutions/graphology-communities-leiden";
 import { UndirectedGraph } from "graphology";
-import type { RelationFamily } from "../src/types";
+import type { RelationFamily } from "../shared/contracts";
 
 export interface CommunitySemanticEdge { source: string; target: string; similarity: number }
 export interface CommunityExplicitEdge { source: string; target: string; family: RelationFamily }

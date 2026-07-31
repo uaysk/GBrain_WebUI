@@ -3,6 +3,7 @@ import {
   ControlCenterService,
   decodeControlToolPayload,
   normalizeControlCenter,
+  normalizeControlDreamRuns,
   normalizeControlPhase,
   type ControlReadResult,
   type ControlReader,
@@ -130,6 +131,148 @@ const jobsFixture = [
   },
 ];
 
+const sourceDreamPhases = [
+  "lint",
+  "backlinks",
+  "sync",
+  "synthesize",
+  "extract",
+  "extract_facts",
+  "extract_atoms",
+  "patterns",
+  "recompute_emotional_weight",
+  "consolidate",
+  "propose_takes",
+  "conversation_facts_backfill",
+  "enrich_thin",
+  "schema-suggest",
+] as const;
+
+const globalDreamPhases = [
+  "resolve_symbol_edges",
+  "synthesize_concepts",
+  "grade_takes",
+  "calibration_profile",
+  "skillopt",
+  "embed",
+  "orphans",
+  "purge",
+] as const;
+
+function dreamPhase(phase: string, overrides: Record<string, unknown> = {}) {
+  return {
+    phase,
+    status: "ok",
+    duration_ms: 100,
+    summary: `${phase} completed`,
+    details: {},
+    ...overrides,
+  };
+}
+
+function dreamJob({
+  id,
+  name = "autopilot-cycle",
+  sourceId = "default",
+  finishedAt: jobFinishedAt,
+  totals = {},
+  phases,
+  affectedPages,
+}: {
+  id: number;
+  name?: "autopilot-cycle" | "autopilot-global-maintenance";
+  sourceId?: string | null;
+  finishedAt: string;
+  totals?: Record<string, unknown>;
+  phases: unknown[];
+  affectedPages?: unknown;
+}) {
+  return {
+    id,
+    name,
+    queue: "maintenance",
+    status: "completed",
+    data: sourceId === null
+      ? { credential: "raw-data-secret", path: "/home/operator/raw" }
+      : { source_id: sourceId, credential: "raw-data-secret", path: "/home/operator/raw" },
+    created_at: jobFinishedAt,
+    started_at: new Date(new Date(jobFinishedAt).getTime() - 2_000).toISOString(),
+    finished_at: jobFinishedAt,
+    stacktrace: ["raw-stacktrace-secret"],
+    logs: "raw-log-secret",
+    result: {
+      status: "ok",
+      report: {
+        schema_version: "1",
+        status: "ok",
+        duration_ms: 2_000,
+        totals,
+        phases,
+        ...(affectedPages === undefined ? {} : { affected_pages: affectedPages }),
+        brain_dir: "/srv/gbrain/private",
+        raw_result_secret: "must-not-be-exposed",
+      },
+    },
+  };
+}
+
+function dreamReadFixture() {
+  const previous = dreamJob({
+    id: 501,
+    finishedAt: "2026-07-25T03:05:00.000Z",
+    totals: { pages_embedded: 10, orphans_found: 0, pages_synced: 7 },
+    phases: sourceDreamPhases.map((phase) => dreamPhase(phase)),
+    affectedPages: { items: [], total: 0, truncated: false },
+  });
+  const current = dreamJob({
+    id: 502,
+    finishedAt: "2026-07-26T03:05:00.000Z",
+    totals: { pages_embedded: 12, orphans_found: 2 },
+    phases: sourceDreamPhases.map((phase) => {
+      if (phase === "sync") return dreamPhase(phase, {
+        status: "fail",
+        duration_ms: 800,
+        summary: "sync failed safely",
+        details: { failed_files: 2, warnings: ["raw-warning-secret"] },
+        error: {
+          code: "SYNC_FAIL",
+          message: "raw-error-secret",
+          hint: "raw-hint-secret",
+        },
+      });
+      if (phase === "propose_takes") return dreamPhase(phase, {
+        status: "warn",
+        duration_ms: 500,
+        summary: "proposal budget reached",
+        details: { proposals_inserted: 3, budget_exhausted: true },
+      });
+      return dreamPhase(phase);
+    }),
+    affectedPages: {
+      items: [
+        { source_id: "default", slug: "projects/alpha", phases: ["sync"] },
+        { sourceId: "default", slug: "projects/alpha", phases: ["extract", "sync"] },
+      ],
+      total: 1,
+      truncated: false,
+    },
+  });
+  const global = dreamJob({
+    id: 601,
+    name: "autopilot-global-maintenance",
+    sourceId: null,
+    finishedAt: "2026-07-26T04:05:00.000Z",
+    totals: { pages_embedded: 4, orphans_found: 1 },
+    phases: globalDreamPhases.map((phase) => dreamPhase(phase)),
+    affectedPages: {
+      items: [{ source_id: "default", slug: "notes/global", phases: ["embed"] }],
+      total: 1,
+      truncated: false,
+    },
+  });
+  return { current, previous, global };
+}
+
 const controlConfig: Config["controlCenter"] = {
   mcpUrl: "http://127.0.0.1:3131/mcp",
   mcpToken: "server-only-test-token",
@@ -208,7 +351,18 @@ describe("Control Center normalization", () => {
   });
 
   test("never includes raw job payloads, credentials, local paths, or disallowed sources", () => {
-    const serialized = JSON.stringify(normalizeControlCenter(statusFixture, jobsFixture, ["default"]));
+    const serialized = JSON.stringify(normalizeControlCenter(statusFixture, [
+      ...jobsFixture,
+      {
+        id: 199,
+        name: "sync",
+        status: "failed",
+        data: { source_id: "default" },
+        error_text: "failure\n    at run (/home/operator/private.ts:1:2)\n    at C:\\Users\\operator\\private.ts:2:3 postgres://user:pass@db/gbrain password=raw-password",
+        error: { message: "raw-nested-error-secret" },
+        created_at: "2026-07-26T03:09:00.000Z",
+      },
+    ], ["default"]));
 
     expect(serialized).not.toContain("must-never-reach-the-browser");
     expect(serialized).not.toContain("private-value");
@@ -216,6 +370,11 @@ describe("Control Center normalization", () => {
     expect(serialized).not.toContain("internal-lock");
     expect(serialized).not.toContain("internal-idempotency");
     expect(serialized).not.toContain("private stack");
+    expect(serialized).not.toContain("raw-nested-error-secret");
+    expect(serialized).not.toContain("raw-password");
+    expect(serialized).not.toContain("postgres://");
+    expect(serialized).not.toContain("C:\\Users");
+    expect(serialized).not.toContain("\n    at ");
     expect(serialized).not.toContain("Not allowed");
     expect(serialized).toContain("<redacted>");
     expect(serialized).toContain("<local-path>");
@@ -230,6 +389,7 @@ describe("Control Center normalization", () => {
       summary: "단계 결과가 제공되지 않았습니다.",
       metrics: [],
       warnings: [],
+      codes: [],
     });
     expect(normalizeControlPhase({
       phase: "future_phase",
@@ -241,6 +401,43 @@ describe("Control Center normalization", () => {
       status: "unknown",
       metrics: [],
     });
+  });
+
+  test("uses phase registries to canonicalize aliases and emits only allowlisted remediation codes", () => {
+    const migration = normalizeControlPhase({
+      phase: "extract_facts",
+      status: "warn",
+      details: {
+        pagesScanned: 9,
+        legacy_rows_pending: 3,
+        warnings: ["raw-warning-secret"],
+        hint: "raw-hint-secret",
+        arbitrary_count: 999,
+      },
+      error: { message: "raw-error-secret", hint: "raw-error-hint-secret" },
+    });
+    expect(migration).toMatchObject({
+      metrics: [
+        { key: "legacyRowsPending", value: 3 },
+        { key: "pages_scanned", value: 9 },
+      ],
+      codes: ["migration_required"],
+    });
+    const migrationSerialized = JSON.stringify(migration);
+    for (const secret of ["raw-error-secret", "raw-error-hint-secret", "raw-warning-secret", "raw-hint-secret", "999"]) {
+      expect(migrationSerialized).not.toContain(secret);
+    }
+
+    const serialized = JSON.stringify(normalizeControlPhase({
+      phase: "extract_atoms",
+      status: "skipped",
+      details: { reason: "not_in_active_pack", pack_gated: true },
+      error: { message: "raw-message-secret", hint: "raw-hint-secret" },
+    }));
+    expect(serialized).toContain("pack_gated");
+    for (const secret of ["raw-message-secret", "raw-hint-secret"]) {
+      expect(serialized).not.toContain(secret);
+    }
   });
 
   test("caps the recent-job visualization at 30 while retaining detailed cycle lookup", () => {
@@ -401,6 +598,250 @@ describe("ControlCenterService", () => {
     expect(reader.calls).toBe(2);
   });
 
+  test("builds source/global Dream history and cached-only secure Inspector details", async () => {
+    const { current, previous, global } = dreamReadFixture();
+    const allowedStatus = {
+      ...statusFixture,
+      sync: { sources: [statusFixture.sync.sources[0]] },
+    };
+    const reader = new FixtureReader(controlReadResult({
+      status: allowedStatus,
+      fullRuns: [previous, current],
+      globalRuns: [global],
+    }));
+    const service = new ControlCenterService(controlConfig, ["default"], reader);
+
+    const overview = await service.getOverview();
+    expect(overview.dreamRuns?.map((run) => run.id)).toEqual([601, 502, 501]);
+    expect(overview.dreamRuns?.find((run) => run.id === 502)?.phases).toHaveLength(14);
+    expect(overview.dreamRuns?.find((run) => run.id === 601)?.phases).toHaveLength(8);
+    expect(overview.quality).toEqual({
+      status: "fresh",
+      recentJobs: "fresh",
+      sourceDreamRuns: "fresh",
+      globalDreamRuns: "fresh",
+    });
+
+    const lookup = service.getDreamRunDetail(502);
+    expect(lookup.status).toBe("ok");
+    if (lookup.status !== "ok") throw new Error("expected detail");
+    expect(lookup.detail.snapshotGeneratedAt).toBe(overview.generatedAt);
+    expect(lookup.detail.previousRun?.id).toBe(501);
+    expect(lookup.detail.comparison.metrics).toEqual([
+      {
+        key: "orphans_found",
+        label: "고립 페이지",
+        current: 2,
+        previous: 0,
+        delta: 2,
+      },
+      {
+        key: "pages_embedded",
+        label: "Embedding 페이지",
+        current: 12,
+        previous: 10,
+        delta: 2,
+      },
+    ]);
+    expect(lookup.detail.comparison.metrics.some((metric) => metric.key === "pages_synced")).toBe(false);
+    expect(lookup.detail.findings).toHaveLength(5);
+    expect(lookup.detail.findings.map((finding) => finding.kind)).toEqual([
+      "failure",
+      "warning",
+      "remediation",
+      "metric",
+      "duration",
+    ]);
+    expect(lookup.detail.affectedPages).toEqual({
+      items: [{ sourceId: "default", slug: "projects/alpha", phases: ["sync", "extract"] }],
+      total: 1,
+      truncated: false,
+      coverage: "complete",
+    });
+    expect(reader.calls).toBe(1);
+
+    const serialized = JSON.stringify(lookup.detail);
+    for (const secret of [
+      "raw-data-secret",
+      "raw-stacktrace-secret",
+      "raw-log-secret",
+      "raw-warning-secret",
+      "raw-error-secret",
+      "raw-hint-secret",
+      "must-not-be-exposed",
+      "/home/operator",
+      "/srv/gbrain",
+      "private/secret",
+    ]) expect(serialized).not.toContain(secret);
+  });
+
+  test("extracts only fixed legacy sync and synthesize ref fields without exposing raw report data", () => {
+    const legacy = dreamJob({
+      id: 710,
+      finishedAt: "2026-07-27T03:05:00.000Z",
+      phases: [
+        dreamPhase("sync", {
+          pagesAffected: ["projects/alpha", "projects/alpha"],
+          status: "ok",
+          details: { dryRun: false, syncStatus: "synced", nested: { pagesAffected: ["must/not/be-recursed"] } },
+        }),
+        dreamPhase("synthesize", {
+          details: {
+            pages_written: 1,
+            written_slugs: ["wiki/reflection"],
+            summary_slug: "dream-cycle-summaries/2026-07-27",
+            nested: { written_slugs: ["must/not/be-recursed"] },
+          },
+        }),
+        dreamPhase("patterns", {
+          details: { written_slugs: ["must/not/be-inferred"], patterns_written: 1 },
+        }),
+      ],
+    });
+
+    const [entry] = normalizeControlDreamRuns([legacy], ["default"]);
+    expect(entry.affectedPages).toEqual({
+      items: [
+        { sourceId: "default", slug: "dream-cycle-summaries/2026-07-27", phases: ["synthesize"] },
+        { sourceId: "default", slug: "projects/alpha", phases: ["sync"] },
+        { sourceId: "default", slug: "wiki/reflection", phases: ["synthesize"] },
+      ],
+      total: 3,
+      truncated: false,
+      coverage: "partial",
+    });
+    const serialized = JSON.stringify(entry.affectedPages);
+    expect(serialized).not.toContain("must/not");
+  });
+
+  test("fails closed for malformed legacy refs and does not downgrade malformed producer aggregates", () => {
+    const invalidLegacy = dreamJob({
+      id: 713,
+      finishedAt: "2026-07-27T06:05:00.000Z",
+      phases: [dreamPhase("sync", {
+        status: "ok",
+        pagesAffected: ["projects/valid", "/home/operator/private", "token=must-not-copy"],
+        details: { dryRun: false, syncStatus: "synced" },
+      })],
+    });
+    const malformedProducer = dreamJob({
+      id: 714,
+      finishedAt: "2026-07-27T07:05:00.000Z",
+      phases: [dreamPhase("sync", {
+        status: "ok",
+        pagesAffected: ["projects/fallback-must-not-run"],
+        details: { dryRun: false, syncStatus: "synced" },
+      })],
+      affectedPages: {
+        items: [{ source_id: "private", slug: "projects/foreign", phases: ["sync"] }],
+        total: 1,
+        truncated: false,
+      },
+    });
+
+    for (const entry of normalizeControlDreamRuns([invalidLegacy, malformedProducer], ["default"])) {
+      expect(entry.affectedPages).toEqual({ items: [], total: 0, truncated: false, coverage: "unavailable" });
+      const serialized = JSON.stringify(entry.affectedPages);
+      expect(serialized).not.toContain("operator");
+      expect(serialized).not.toContain("token=");
+      expect(serialized).not.toContain("foreign");
+      expect(serialized).not.toContain("fallback-must-not-run");
+    }
+  });
+
+  test("caps legacy refs at 200 and refuses to bind sourceless global refs", () => {
+    const refs = Array.from({ length: 201 }, (_, index) => `topics/page-${String(index).padStart(3, "0")}`);
+    const source = dreamJob({
+      id: 711,
+      finishedAt: "2026-07-27T04:05:00.000Z",
+      phases: [dreamPhase("sync", {
+        status: "ok",
+        pages_affected: refs,
+        details: { dry_run: false, sync_status: "synced" },
+      })],
+    });
+    const global = dreamJob({
+      id: 712,
+      name: "autopilot-global-maintenance",
+      sourceId: null,
+      finishedAt: "2026-07-27T05:05:00.000Z",
+      phases: [dreamPhase("synthesize", { details: { written_slugs: ["topics/global"] } })],
+    });
+    const nonDefaultSynth = dreamJob({
+      id: 715,
+      sourceId: "notes",
+      finishedAt: "2026-07-27T05:15:00.000Z",
+      phases: [dreamPhase("synthesize", {
+        status: "ok",
+        details: {
+          pages_written: 1,
+          written_slugs: ["topics/ambiguous-source"],
+          summary_slug: "dream-cycle-summaries/2026-07-27",
+        },
+      })],
+    });
+
+    const [sourceEntry] = normalizeControlDreamRuns([source], ["default"]);
+    expect(sourceEntry.affectedPages).toMatchObject({ total: 201, truncated: true, coverage: "partial" });
+    expect(sourceEntry.affectedPages.items).toHaveLength(200);
+    const [globalEntry] = normalizeControlDreamRuns([global], ["default"], true);
+    expect(globalEntry.affectedPages).toEqual({ items: [], total: 0, truncated: false, coverage: "unavailable" });
+    const [nonDefaultEntry] = normalizeControlDreamRuns([nonDefaultSynth], ["default", "notes"]);
+    expect(nonDefaultEntry.affectedPages).toEqual({ items: [], total: 0, truncated: false, coverage: "unavailable" });
+  });
+
+  test("retains a failed Dream detail section as stale without disabling overview mutations", async () => {
+    const { current, previous, global } = dreamReadFixture();
+    const allowedStatus = { ...statusFixture, sync: { sources: [statusFixture.sync.sources[0]] } };
+    let result = controlReadResult({
+      status: allowedStatus,
+      fullRuns: [current, previous],
+      globalRuns: [global],
+    });
+    const reader: ControlReader = { read: async () => result };
+    const service = new ControlCenterService({ ...controlConfig, cacheMs: 0 }, ["default"], reader);
+    await service.getOverview();
+
+    result = controlReadResult({
+      status: allowedStatus,
+      fullRuns: null,
+      globalRuns: [global],
+      partial: true,
+    });
+    const partial = await service.getOverview();
+    expect(partial.availability.message).toBeNull();
+    expect(partial.management.enabled).toBe(true);
+    expect(partial.quality?.sourceDreamRuns).toBe("stale");
+    const retained = service.getDreamRunDetail(502);
+    expect(retained.status).toBe("ok");
+    if (retained.status === "ok") {
+      expect(retained.detail.stale).toBe(true);
+      expect(retained.detail.snapshotGeneratedAt).toBe(partial.generatedAt);
+    }
+  });
+
+  test("isolates malformed Dream detail normalization from overview and management", async () => {
+    const malformed = {
+      id: 900,
+      name: "autopilot-cycle",
+      status: "completed",
+      data: { source_id: "default" },
+      get result(): unknown {
+        throw new Error("raw-detail-normalization-secret");
+      },
+    };
+    const reader = new FixtureReader(controlReadResult({ fullRuns: [malformed] }));
+    const service = new ControlCenterService(controlConfig, ["default"], reader);
+    const errorLog = spyOn(console, "error").mockImplementation(() => undefined);
+    const overview = await service.getOverview();
+    errorLog.mockRestore();
+
+    expect(overview.availability).toMatchObject({ connected: true, message: null });
+    expect(overview.management.enabled).toBe(true);
+    expect(overview.quality?.sourceDreamRuns).toBe("unavailable");
+    expect(service.getDreamRunDetail(900)).toEqual({ status: "unavailable" });
+  });
+
   test("marks partial MCP reads without discarding safe visual data", async () => {
     const reader = new FixtureReader(controlReadResult({ partial: true }));
     const service = new ControlCenterService(controlConfig, ["default"], reader);
@@ -466,5 +907,25 @@ describe("ControlCenterService", () => {
     expect(stale.availability).toMatchObject({ configured: true, connected: false });
     expect(stale.generatedAt).toBe(initial.generatedAt);
     expect(stale.jobs).toHaveLength(3);
+  });
+
+  test("does not let a pre-invalidation request overwrite the new cache generation", async () => {
+    const resolvers: Array<(value: ControlReadResult) => void> = [];
+    const reader: ControlReader = {
+      read: () => new Promise<ControlReadResult>((resolve) => { resolvers.push(resolve); }),
+    };
+    const service = new ControlCenterService({ ...controlConfig, cacheMs: 60_000 }, ["default"], reader);
+
+    const oldRequest = service.getOverview();
+    service.invalidate();
+    const newRequest = service.getOverview();
+    resolvers[1]!(controlReadResult({ status: { ...statusFixture, version: "new-generation" } }));
+    const fresh = await newRequest;
+    resolvers[0]!(controlReadResult({ status: { ...statusFixture, version: "old-generation" } }));
+    await oldRequest;
+
+    expect(fresh.version).toBe("new-generation");
+    expect((await service.getOverview()).version).toBe("new-generation");
+    expect(resolvers).toHaveLength(2);
   });
 });

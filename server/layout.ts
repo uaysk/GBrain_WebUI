@@ -159,15 +159,47 @@ export function placeUnclassifiedNearGraph(coords: number[][], unclassified: boo
 
 export function relaxNodeCollisions(coords: number[][], minimumDistance: number | number[] = 4.8, iterations = 16, gap = 0): number[][] {
   const points = coords.map((point) => [...point]);
+  if (points.length < 2) return points;
+  const maximumRadius = Array.isArray(minimumDistance) ? Math.max(0, ...minimumDistance) : minimumDistance / 2;
+  const cellSize = Math.max(1e-6, Array.isArray(minimumDistance) ? maximumRadius * 2 + gap : minimumDistance);
+  const cellCoordinate = (value: number) => Math.floor(value / cellSize);
+  const cellKey = (x: number, y: number, z: number) => `${x},${y},${z}`;
   for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const cells = new Map<string, number[]>();
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index]!;
+      const key = cellKey(cellCoordinate(point[0] ?? 0), cellCoordinate(point[1] ?? 0), cellCoordinate(point[2] ?? 0));
+      const members = cells.get(key);
+      if (members) members.push(index);
+      else cells.set(key, [index]);
+    }
+    let collisionCount = 0;
+    let maximumOverlap = 0;
     for (let left = 0; left < points.length; left += 1) {
-      for (let right = left + 1; right < points.length; right += 1) {
+      const leftPoint = points[left]!;
+      const cellX = cellCoordinate(leftPoint[0] ?? 0);
+      const cellY = cellCoordinate(leftPoint[1] ?? 0);
+      const cellZ = cellCoordinate(leftPoint[2] ?? 0);
+      const candidates: number[] = [];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dz = -1; dz <= 1; dz += 1) {
+            const members = cells.get(cellKey(cellX + dx, cellY + dy, cellZ + dz));
+            if (members) candidates.push(...members);
+          }
+        }
+      }
+      candidates.sort((a, b) => a - b);
+      for (const right of candidates) {
+        if (right <= left) continue;
         const delta = points[right]!.map((value, axis) => value - (points[left]?.[axis] ?? 0));
         const distance = Math.hypot(...delta);
         const required = Array.isArray(minimumDistance)
           ? (minimumDistance[left] ?? 0) + (minimumDistance[right] ?? 0) + gap
           : minimumDistance;
         if (distance >= required) continue;
+        collisionCount += 1;
+        maximumOverlap = Math.max(maximumOverlap, required - distance);
         const direction = distance < 1e-6 ? deterministicDirection(left, right) : delta.map((value) => value / distance);
         const force = (required - distance) * 0.3;
         direction.forEach((value, axis) => {
@@ -176,6 +208,7 @@ export function relaxNodeCollisions(coords: number[][], minimumDistance: number 
         });
       }
     }
+    if (collisionCount === 0 || maximumOverlap < 1e-4) break;
   }
   return points;
 }

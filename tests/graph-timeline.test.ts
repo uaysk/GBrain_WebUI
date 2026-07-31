@@ -50,6 +50,10 @@ describe("graph timeline projection", () => {
     const frames = createGraphTimelineFrames(timeline);
     expect(frames.map((frame) => frame.day)).toEqual(["2025-01-01", "2025-01-02", "2025-01-03", "2025-01-04"]);
     expect([...frames[2]!.changedNodeIds].sort()).toEqual(["a", "b"]);
+    expect([...frames[0]!.createdNodeIds]).toEqual(["a"]);
+    expect([...frames[1]!.createdNodeIds]).toEqual(["b"]);
+    expect([...frames[2]!.updatedNodeIds].sort()).toEqual(["a", "b"]);
+    expect(frames[2]!.createdNodeIds.size).toBe(0);
     expect(frames.at(-1)?.current).toBe(true);
   });
 

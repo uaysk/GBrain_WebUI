@@ -1,4 +1,4 @@
-import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, SCALABLE_LAYOUT_PAGE_THRESHOLD, type GraphNode } from "../types";
+import { NODE_COLLISION_GAP, NODE_RADIUS_SCALE, type GraphNode } from "../types";
 
 export type MapViewMode = "3d" | "2d";
 
@@ -26,6 +26,19 @@ export interface Map2DLayout {
 const GROUP_GAP = 14;
 const HALO_PADDING = 6;
 const OUTER_HALO_SCALE = 1.16;
+export const DETAILED_2D_PAIR_WORK_LIMIT = 2_500_000;
+
+const choose2 = (value: number) => value > 1 ? value * (value - 1) / 2 : 0;
+
+export function detailed2DPairWork(nodes: readonly GraphNode[]): number {
+  const groupSizes = new Map<string, number>();
+  for (const node of nodes) {
+    if (!node.hasEmbedding || node.isUnclassified) continue;
+    groupSizes.set(node.groupId, (groupSizes.get(node.groupId) ?? 0) + 1);
+  }
+  const withinGroups = [...groupSizes.values()].reduce((sum, size) => sum + choose2(size), 0);
+  return 96 * withinGroups + 360 * choose2(groupSizes.size) + choose2(nodes.length);
+}
 
 function direction2D(left: number, right: number): [number, number] {
   const angle = ((left + 1) * 2.399963 + (right + 1) * 1.618034) % (Math.PI * 2);
@@ -237,7 +250,7 @@ function createPackedGrid2DLayout(stableNodes: GraphNode[]): Map2DLayout {
 
 export function createMap2DLayout(nodes: GraphNode[]): Map2DLayout {
   const stableNodes = [...nodes].sort((left, right) => left.id.localeCompare(right.id));
-  if (stableNodes.length > SCALABLE_LAYOUT_PAGE_THRESHOLD) return createPackedGrid2DLayout(stableNodes);
+  if (detailed2DPairWork(stableNodes) > DETAILED_2D_PAIR_WORK_LIMIT) return createPackedGrid2DLayout(stableNodes);
   const communities = prepareCommunities(stableNodes);
   const centers = packCommunityCenters(communities);
   const positions: Record<string, LayoutPoint> = {};

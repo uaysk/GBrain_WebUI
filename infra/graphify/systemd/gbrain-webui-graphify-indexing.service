@@ -1,0 +1,40 @@
+[Unit]
+Description=Refresh GBrain WebUI Graphify hybrid index and exports
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/uaysk/.bun/bin:/home/uaysk/.volta/bin:/home/uaysk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/home/uaysk/GBrain_WebUI
+ExecStartPre=/bin/sleep 5
+ExecStart=/home/uaysk/GBrain_WebUI/scripts/graphify-hybrid/indexing-service.sh
+Restart=on-failure
+RestartSec=120
+TimeoutStartSec=30min
+TimeoutStopSec=30s
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/uaysk/.graphify /home/uaysk/.local/state/gbrain-webui-graphify /home/uaysk/GBrain_WebUI/graphify-out
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

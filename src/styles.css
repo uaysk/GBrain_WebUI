@@ -3,10 +3,11 @@
 :root { color-scheme: dark; font-family: Inter, Pretendard, "Noto Sans KR", ui-sans-serif, system-ui, sans-serif; background: #080808; }
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-button, select, input { touch-action: manipulation; }
-button { cursor: pointer; }
+button, select, input, summary { touch-action: manipulation; }
+button, summary { cursor: pointer; }
 @media (pointer: coarse) {
   button { min-width: 44px; min-height: 44px; }
+  summary { min-height: 44px; }
   select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,4 @@
-import { History, SlidersHorizontal } from "lucide-react";
+import { History, RotateCcw, SlidersHorizontal } from "lucide-react";
 import type { RelationFamily } from "../api/types";
 import { EXPLICIT_RELATION_FAMILIES, RELATION_VISUALS } from "../graph/visual-spec";
 import { Button } from "./ui/button";
@@ -10,11 +10,13 @@ interface Props {
   threshold: number;
   minimumThreshold: number;
   explicitFamilies: RelationFamily[];
+  activeRelationCount: number;
   onTimelineOnChange: (value: boolean) => void;
   onSemanticOnChange: (value: boolean) => void;
   onExplicitOnChange: (value: boolean) => void;
   onThresholdChange: (value: number) => void;
   onExplicitFamiliesChange: (value: RelationFamily[]) => void;
+  onReset: () => void;
 }
 
 export function LayerControls(props: Props) {
@@ -24,7 +26,11 @@ export function LayerControls(props: Props) {
       : [...props.explicitFamilies, family],
   );
   return <aside data-testid="layer-controls" className="pointer-events-auto w-full shrink-0 rounded-lg bg-zinc-900/90 p-3 text-[10px] text-zinc-300 backdrop-blur-sm" aria-label="Graph layers">
-    <div className="mb-2 flex items-center gap-2 font-semibold uppercase tracking-[0.14em] text-zinc-100"><SlidersHorizontal className="size-3.5" />Layers</div>
+    <div className="mb-2 flex items-center gap-2 font-semibold uppercase tracking-[0.14em] text-zinc-100">
+      <SlidersHorizontal className="size-3.5" />Layers
+      <span className="ml-auto font-mono text-[9px] font-normal tracking-normal text-zinc-500">{props.activeRelationCount} active</span>
+      <button type="button" onClick={props.onReset} className="grid size-7 place-items-center rounded bg-black/20 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 focus-visible:bg-zinc-600 focus-visible:outline-none" aria-label="Layer 기본값 복원" title="Layer 기본값 복원"><RotateCcw className="size-3" /></button>
+    </div>
     <div className="flex items-center justify-between gap-3">
       <Button className="h-7 px-2" variant={props.semanticOn ? "active" : "default"} aria-pressed={props.semanticOn} onClick={() => props.onSemanticOnChange(!props.semanticOn)}><span className="size-2 rounded-full bg-cyan-500" />Semantic</Button>
       <label className={`grid min-w-0 flex-1 grid-cols-[auto_minmax(48px,1fr)_2.25rem] items-center gap-2 ${props.semanticOn ? "" : "opacity-40"}`}>

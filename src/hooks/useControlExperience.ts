@@ -6,6 +6,7 @@ import type {
   ControlSourceStatus,
 } from "../types";
 import type { ControlActionIntent } from "../components/control/ControlActionDialog";
+import { normalizeControlJobStatus } from "../api/control-validation";
 
 const ACTIVITY_STORAGE_KEY = "gbrain-control-activity-v1";
 const TREND_STORAGE_KEY = "gbrain-control-trends-v1";
@@ -73,7 +74,8 @@ function safeActionResult(value: unknown): ControlActionResult | null {
     const id = finiteNumber(rawJob.id);
     const name = text(rawJob.name, 80);
     const label = text(rawJob.label, 120);
-    const status = text(rawJob.status, 32) as ControlJobStatus | null;
+    const rawStatus = text(rawJob.status, 32);
+    const status = rawStatus ? normalizeControlJobStatus(rawStatus) : null;
     if (id !== null && id > 0 && name && label && status) {
       job = {
         id,
@@ -138,7 +140,9 @@ export function parseStoredActivity(value: unknown): ControlActivityRecord[] {
       result,
       before: safeSnapshot(source.before),
       after: safeSnapshot(source.after),
-      observedJobStatus: text(source.observedJobStatus, 32) as ControlJobStatus | null,
+      observedJobStatus: source.observedJobStatus === null || source.observedJobStatus === undefined
+        ? null
+        : normalizeControlJobStatus(source.observedJobStatus),
     });
   }
   return records;

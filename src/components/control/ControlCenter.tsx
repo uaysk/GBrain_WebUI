@@ -60,6 +60,7 @@ import {
 } from "./ControlJobFilters";
 import { ControlTrends } from "./ControlTrends";
 import { JobDependencyGraph } from "./JobDependencyGraph";
+import { DreamInspector } from "./DreamInspector";
 import {
   OperationsInbox,
   type OperationsAttentionItem,
@@ -870,6 +871,12 @@ export function ControlCenter() {
           />
         </div>
 
+        <DreamInspector data={data} />
+        {!data.dreamRuns?.length && <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <RunPanel title="Latest full cycle" run={data.latestFullRun} />
+          <RunPanel title="Latest targeted maintenance" run={data.latestTargetedRun} />
+        </div>}
+
         {!!data.sources.length && <Panel className="p-4">
           <div className="mb-3 flex items-center gap-2"><Layers3 className="size-4 text-zinc-500" /><h2 className="text-xs font-semibold text-zinc-200">Sources & Embedding</h2></div>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{data.sources.map((source) => <SourceCard
@@ -882,11 +889,6 @@ export function ControlCenter() {
             onView={(source) => setSourceDetailId(source.id)}
           />)}</div>
         </Panel>}
-
-        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <RunPanel title="Latest full cycle" run={data.latestFullRun} />
-          <RunPanel title="Latest targeted maintenance" run={data.latestTargetedRun} />
-        </div>
 
         <ControlTrends
           generatedAt={data.generatedAt}

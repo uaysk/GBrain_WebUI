@@ -1,4 +1,4 @@
-import { History, Pause, Play, SkipForward } from "lucide-react";
+import { ChevronLeft, ChevronRight, History, Pause, Play, SkipForward } from "lucide-react";
 import type { GraphTimelineFrame } from "../graph/graph-timeline";
 
 interface Props {
@@ -10,9 +10,13 @@ interface Props {
   visibleNodeCount: number;
   totalNodeCount: number;
   staticNodeCount: number;
+  changedNodes: Array<{ id: string; title: string; kind: "created" | "updated" }>;
   onSeek: (index: number) => void;
+  onPrevious: () => void;
+  onNext: () => void;
   onTogglePlayback: () => void;
   onReturnToNow: () => void;
+  embedded?: boolean;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "short", day: "numeric" });
@@ -28,9 +32,25 @@ export function GraphTimelineControls(props: Props) {
     data-static-node-count={props.staticNodeCount}
     data-playing={props.playing}
     aria-label="Memory history timeline"
-    className="pointer-events-auto absolute bottom-3 left-1/2 z-40 w-[min(720px,calc(100vw-24px))] -translate-x-1/2 rounded-lg bg-zinc-900/95 px-3 py-2.5 text-[10px] text-zinc-400 shadow-2xl shadow-black/30 backdrop-blur-md md:w-[min(680px,calc(100vw-360px))]"
+    className={props.embedded
+      ? "pointer-events-auto w-full rounded-lg bg-zinc-900/95 px-3 py-2.5 text-[10px] text-zinc-400"
+      : "pointer-events-auto absolute bottom-3 left-1/2 z-40 w-[min(720px,calc(100vw-24px))] -translate-x-1/2 rounded-lg bg-zinc-900/95 px-3 py-2.5 text-[10px] text-zinc-400 shadow-2xl shadow-black/30 backdrop-blur-md md:w-[min(680px,calc(100vw-360px))]"}
   >
     <div className="flex items-center gap-2.5">
+      <button
+        type="button"
+        aria-label="이전 기록 시점"
+        disabled={props.frameIndex <= 0}
+        onClick={props.onPrevious}
+        className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 focus-visible:bg-zinc-600 focus-visible:outline-none disabled:cursor-default disabled:opacity-35"
+      ><ChevronLeft className="size-3.5" /></button>
+      <button
+        type="button"
+        aria-label="다음 기록 시점"
+        disabled={props.frameIndex >= props.frames.length - 1}
+        onClick={props.onNext}
+        className="grid size-8 shrink-0 place-items-center rounded-md bg-zinc-800 text-zinc-300 hover:bg-zinc-700 focus-visible:bg-zinc-600 focus-visible:outline-none disabled:cursor-default disabled:opacity-35"
+      ><ChevronRight className="size-3.5" /></button>
       <button
         type="button"
         aria-label={props.playing ? "타임라인 일시정지" : "타임라인 재생"}
@@ -68,6 +88,21 @@ export function GraphTimelineControls(props: Props) {
         onClick={props.onReturnToNow}
         className="flex h-8 shrink-0 items-center gap-1 rounded-md bg-zinc-800 px-2 text-zinc-300 hover:bg-zinc-700 focus-visible:bg-zinc-600 focus-visible:text-white focus-visible:outline-none disabled:cursor-default disabled:opacity-35"
       ><SkipForward className="size-3" /><span className="hidden sm:inline">Now</span></button>
+    </div>
+    <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-zinc-800/80 pt-1.5">
+      <span role="status" aria-live="polite" aria-atomic="true" className="text-zinc-500">
+        {changedCount ? `생성 ${props.frame.createdNodeIds.size} · 갱신 ${props.frame.updatedNodeIds.size}` : "이 시점의 페이지 변화 없음"}
+      </span>
+      {props.historical && <span className="text-amber-400/75">문서 본문은 현재 저장 내용입니다.</span>}
+      {!!props.changedNodes.length && <details className="basis-full rounded bg-black/20 px-2 py-1">
+        <summary className="min-h-11 cursor-pointer py-3 text-zinc-400 focus-visible:outline-none focus-visible:text-white">변화한 페이지 {props.changedNodes.length}개 보기</summary>
+        <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto" aria-label="생성 및 갱신된 페이지">
+          {props.changedNodes.map((node) => <li key={node.id} className="flex min-w-0 gap-2">
+            <span className={node.kind === "created" ? "text-emerald-400" : "text-cyan-400"}>{node.kind === "created" ? "생성" : "갱신"}</span>
+            <span className="truncate text-zinc-300" title={node.title}>{node.title}</span>
+          </li>)}
+        </ul>
+      </details>}
     </div>
   </section>;
 }

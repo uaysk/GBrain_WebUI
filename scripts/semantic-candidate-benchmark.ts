@@ -38,7 +38,7 @@ const candidateQuery = `
       FROM "${schema}".content_chunks c
       WHERE c.embedding IS NOT NULL AND c.page_id <> a.id
       ORDER BY c.embedding <=> a.embedding
-      LIMIT $2
+      LIMIT ($2 * 4)
     ) candidate
   ), candidate_pages AS MATERIALIZED (
     SELECT candidates.from_page_id, candidates.to_page_id

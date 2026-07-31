@@ -1,1 +1,1 @@
-export * from "../src/control/insights";
+export * from "../shared/control/insights";

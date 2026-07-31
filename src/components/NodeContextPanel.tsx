@@ -13,6 +13,7 @@ interface Props {
   node: GraphNode;
   detailState: NodeDetailState;
   relatedNodes: RelatedGraphNode[];
+  historicalContent?: boolean;
   onSelectNode: (id: string) => void;
   onClose: () => void;
 }
@@ -24,7 +25,7 @@ function relationLabel(edge: GraphEdge, selectedId: string): string {
   return endpointId(edge.source) === selectedId ? `${label} →` : `← ${label}`;
 }
 
-export function NodeContextPanel({ node, detailState, relatedNodes, onSelectNode, onClose }: Props) {
+export function NodeContextPanel({ node, detailState, relatedNodes, historicalContent = false, onSelectNode, onClose }: Props) {
   const [contentExpanded, setContentExpanded] = useState(false);
   const currentDetail = detailState.nodeId === node.id && detailState.status === "ready" ? detailState.detail : null;
   const status = detailState.nodeId === node.id ? detailState.status : "loading";
@@ -65,6 +66,7 @@ export function NodeContextPanel({ node, detailState, relatedNodes, onSelectNode
           ><Maximize2 className="size-3" />Expand</button>
         </div>
       </div>
+      {historicalContent && <p data-testid="historical-current-content-note" className="mx-2 mb-2 rounded bg-amber-950/35 px-2 py-1.5 text-[10px] leading-relaxed text-amber-200" role="note">역사 시점에서도 이 본문은 현재 저장 내용입니다.</p>}
       <div data-testid="node-content" data-state={status} className="max-h-[24dvh] min-h-20 overflow-y-auto break-words px-2 pb-2 text-[10px] leading-relaxed text-zinc-400">
         {status === "loading" && <span className="text-zinc-600">Loading content…</span>}
         {status === "failed" && <span className="text-red-300">{detailState.error}</span>}

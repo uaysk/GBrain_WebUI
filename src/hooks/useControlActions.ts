@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { ControlActionRequest, ControlActionResult } from "../types";
+import { parseControlActionResult } from "../api/control-validation";
 
 interface CsrfResponse {
   token?: unknown;
@@ -141,7 +142,7 @@ async function submitControlAction(request: ControlActionRequest, key: string): 
     body: JSON.stringify(request),
   });
   if (!actionResponse.ok) throw new ControlActionRequestError(await responseFailure(actionResponse));
-  return actionResponse.json() as Promise<ControlActionResult>;
+  return parseControlActionResult(await actionResponse.json());
 }
 
 export function useControlActions() {

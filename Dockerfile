@@ -6,11 +6,14 @@ RUN bun install --frozen-lockfile
 
 FROM dependencies AS build
 
-COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts index.html ./
+COPY tsconfig.base.json tsconfig.app.json tsconfig.server.json vite.config.ts index.html ./
 COPY src ./src
 COPY server ./server
-RUN bun run build \
-    && NODE_ENV=production bun build server/index.ts --target=bun --outfile /tmp/gbrain-server/index.js
+COPY shared ./shared
+RUN bunx tsc -p tsconfig.app.json \
+    && bunx tsc -p tsconfig.server.json \
+    && bun run build:web \
+    && NODE_ENV=production bun build server/index.ts server/graph-build-worker.ts --target=bun --outdir /tmp/gbrain-server
 
 FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS runtime
 
@@ -21,7 +24,7 @@ USER root
 RUN apk upgrade --no-cache
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /tmp/gbrain-server/index.js ./server/index.js
+COPY --from=build /tmp/gbrain-server ./server
 
 USER bun
 EXPOSE 3000

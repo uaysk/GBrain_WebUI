@@ -30,6 +30,14 @@ export function useGraphTimeline(timeline: GraphTimelineResponse | null) {
     return () => window.clearInterval(timer);
   }, [frames.length, lastIndex, playing]);
 
+  useEffect(() => {
+    const stopWhenHidden = () => {
+      if (document.visibilityState === "hidden") setPlaying(false);
+    };
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => document.removeEventListener("visibilitychange", stopWhenHidden);
+  }, []);
+
   const seek = useCallback((index: number) => {
     setPlaying(false);
     setFrameIndex(Math.max(0, Math.min(lastIndex, Math.round(index))));
@@ -48,6 +56,9 @@ export function useGraphTimeline(timeline: GraphTimelineResponse | null) {
     setFrameIndex(lastIndex);
   }, [lastIndex]);
 
+  const previous = useCallback(() => seek(frameIndex - 1), [frameIndex, seek]);
+  const next = useCallback(() => seek(frameIndex + 1), [frameIndex, seek]);
+
   const safeIndex = Math.max(0, Math.min(frameIndex, lastIndex));
   return {
     frames,
@@ -57,6 +68,8 @@ export function useGraphTimeline(timeline: GraphTimelineResponse | null) {
     playing,
     historical: frames.length > 0 && safeIndex < lastIndex,
     seek,
+    previous,
+    next,
     togglePlayback,
     returnToNow,
   };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { placeUnclassifiedNearGraph, projectPackedGrid3D, relaxNodeCollisions, separateSemanticGroups } from "../server/layout";
-import { createMap2DLayout, easeInOutCubic } from "../src/graph/layout-2d";
+import { DETAILED_2D_PAIR_WORK_LIMIT, createMap2DLayout, detailed2DPairWork, easeInOutCubic } from "../src/graph/layout-2d";
 import { SCALABLE_LAYOUT_PAGE_THRESHOLD, type GraphNode } from "../src/types";
 
 describe("semantic layout spacing", () => {
@@ -109,5 +109,12 @@ describe("dedicated 2D map layout", () => {
     expect(Object.values(first.positions).every((point) => point.z === 0 && Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
     expect(first.minimumNodeGap).toBeGreaterThanOrEqual(0.8);
     expect(first.minimumCommunityGap).toBeGreaterThanOrEqual(14);
+  });
+
+  test("selects detailed 2D work by the explicit pair-cost budget", () => {
+    const representative = Array.from({ length: 191 }, (_, index) => node(`cost-${index}`, `group-${index % 8}`, index, 0, 0));
+    expect(detailed2DPairWork(representative)).toBeLessThanOrEqual(DETAILED_2D_PAIR_WORK_LIMIT);
+    const dense = Array.from({ length: 300 }, (_, index) => node(`dense-${index}`, "one-dense-group", index, 0, 0));
+    expect(detailed2DPairWork(dense)).toBeGreaterThan(DETAILED_2D_PAIR_WORK_LIMIT);
   });
 });

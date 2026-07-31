@@ -1,0 +1,9 @@
+[Unit]
+Description=Schedule GBrain WebUI hybrid benchmark after a verified index refresh
+
+[Path]
+PathChanged=/home/uaysk/.local/state/gbrain-webui-graphify/input.sha256
+Unit=gbrain-webui-graphify-benchmark.service
+
+[Install]
+WantedBy=default.target

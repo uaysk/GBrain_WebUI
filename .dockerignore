@@ -1,6 +1,12 @@
 .git
 .gitignore
 .env
+.env.*
+.codex
+.graphify
+graphify-out
+.graphifyignore
+AGENTS.md
 .cache
 node_modules
 dist

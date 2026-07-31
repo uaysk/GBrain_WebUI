@@ -1,0 +1,9 @@
+[Unit]
+Description=Schedule GBrain WebUI hybrid indexing after Graphify graph updates
+
+[Path]
+PathChanged=/home/uaysk/GBrain_WebUI/graphify-out/graph.json
+Unit=gbrain-webui-graphify-indexing.service
+
+[Install]
+WantedBy=default.target

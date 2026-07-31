@@ -1,0 +1,37 @@
+[Unit]
+Description=Benchmark the verified GBrain WebUI Graphify hybrid index
+Wants=network-online.target
+After=network-online.target gbrain-webui-graphify-indexing.service
+StartLimitIntervalSec=30min
+StartLimitBurst=2
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/uaysk/.bun/bin:/home/uaysk/.volta/bin:/home/uaysk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/home/uaysk/GBrain_WebUI
+ExecStart=/home/uaysk/GBrain_WebUI/scripts/graphify-hybrid/benchmark-service.sh
+TimeoutStartSec=20min
+TimeoutStopSec=30s
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/uaysk/.local/state/gbrain-webui-graphify /home/uaysk/GBrain_WebUI/graphify-out
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -1,7 +1,10 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Config } from "./config";
+import { readUrlEncodedForm, RequestBodyError } from "./request-body";
+import { directRequestNetwork, type RequestNetwork } from "./request-network";
 
 const COOKIE_NAME = "gbrain_session";
+export const MAX_AUTH_IDENTITIES = 10_000;
 
 type Attempt = { count: number; resetAt: number };
 
@@ -24,10 +27,6 @@ function safeNext(value: FormDataEntryValue | string | null): string {
   return next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
-function isSecure(request: Request): boolean {
-  return request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" || new URL(request.url).protocol === "https:";
-}
-
 function loginPage(next: string, error: string | null = null): string {
   const escapedNext = next.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GBrain 3D Memory Map · Login</title><style>
@@ -43,12 +42,23 @@ export class AuthService {
     return createHmac("sha256", this.config.sessionSecret).update(payload).digest("base64url");
   }
 
-  private clientKey(request: Request): string {
-    return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
+  get attemptIdentityCount(): number {
+    return this.attempts.size;
   }
 
-  private sessionCookie(request: Request, value: string, maxAge: number): string {
-    return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${isSecure(request) ? "; Secure" : ""}`;
+  private pruneAttempts(now: number): void {
+    for (const [key, attempt] of this.attempts) {
+      if (attempt.resetAt <= now) this.attempts.delete(key);
+    }
+    while (this.attempts.size >= MAX_AUTH_IDENTITIES) {
+      const oldest = this.attempts.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.attempts.delete(oldest);
+    }
+  }
+
+  private sessionCookie(secure: boolean, value: string, maxAge: number): string {
+    return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
   }
 
   isAuthenticated(request: Request): boolean {
@@ -96,17 +106,28 @@ export class AuthService {
     return new Response(loginPage(next), { headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
 
-  async login(request: Request, headers: HeadersInit, originAllowed: boolean): Promise<Response> {
+  async login(
+    request: Request,
+    headers: HeadersInit,
+    originAllowed: boolean,
+    network: RequestNetwork = directRequestNetwork(request),
+  ): Promise<Response> {
     if (!originAllowed) return new Response("Origin not allowed", { status: 403, headers });
-    if (Number(request.headers.get("content-length") ?? "0") > 4096) return new Response("Request too large", { status: 413, headers });
-    const key = this.clientKey(request);
+    let form: URLSearchParams;
+    try {
+      form = await readUrlEncodedForm(request, 4_096);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return new Response(error.message, { status: error.status, headers });
+      throw error;
+    }
+    const key = network.clientIp;
     const now = Date.now();
+    this.pruneAttempts(now);
     const previous = this.attempts.get(key);
     const attempt = !previous || previous.resetAt <= now ? { count: 0, resetAt: now + this.config.attemptWindowMinutes * 60_000 } : previous;
     if (attempt.count >= this.config.maxAttempts) {
       return new Response(loginPage("/", "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), { status: 429, headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Retry-After": String(Math.ceil((attempt.resetAt - now) / 1000)) } });
     }
-    const form = await request.formData();
     const password = form.get("password");
     const next = safeNext(form.get("next"));
     if (typeof password !== "string" || !constantTimePasswordEqual(password, this.config.password)) {
@@ -118,11 +139,16 @@ export class AuthService {
     const maxAge = Math.floor(this.config.sessionHours * 3600);
     const payload = `${Date.now() + maxAge * 1000}:${randomUUID()}`;
     const token = `${payload}.${this.signature(payload)}`;
-    return new Response(null, { status: 303, headers: { ...headers, Location: next, "Set-Cookie": this.sessionCookie(request, token, maxAge), "Cache-Control": "no-store" } });
+    return new Response(null, { status: 303, headers: { ...headers, Location: next, "Set-Cookie": this.sessionCookie(network.secure, token, maxAge), "Cache-Control": "no-store" } });
   }
 
-  logout(request: Request, headers: HeadersInit, originAllowed: boolean): Response {
+  logout(
+    request: Request,
+    headers: HeadersInit,
+    originAllowed: boolean,
+    network: RequestNetwork = directRequestNetwork(request),
+  ): Response {
     if (!originAllowed) return new Response("Origin not allowed", { status: 403, headers });
-    return new Response(null, { status: 303, headers: { ...headers, Location: "/auth/login", "Set-Cookie": this.sessionCookie(request, "", 0), "Cache-Control": "no-store" } });
+    return new Response(null, { status: 303, headers: { ...headers, Location: "/auth/login", "Set-Cookie": this.sessionCookie(network.secure, "", 0), "Cache-Control": "no-store" } });
   }
 }

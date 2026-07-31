@@ -3,7 +3,7 @@ import { communityLabelTitle } from "../graph/community-label";
 
 interface Props {
   group: SemanticGroup;
-  nodes: GraphNode[];
+  nodes: readonly GraphNode[];
   onSelectNode: (id: string) => void;
 }
 

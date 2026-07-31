@@ -13,6 +13,7 @@ export interface Config {
   allowedSourceIds: string[];
   host: string;
   port: number;
+  trustProxyHops: number;
   publicOrigin: string | null;
   rebuildMinIntervalSeconds: number;
   rebuildStatementTimeoutSeconds: number;
@@ -53,6 +54,7 @@ function optionalHttpUrl(name: string, allowInsecureHttp: boolean): string | nul
 export function loadConfig(): Config {
   const port = Number(process.env.GBRAIN_DB_PORT ?? "5432");
   const appPort = Number(process.env.APP_PORT ?? "3000");
+  const trustProxyHops = Number(process.env.APP_TRUST_PROXY_HOPS ?? "0");
   const rebuildMinIntervalSeconds = Number(process.env.APP_REBUILD_MIN_INTERVAL_SECONDS ?? "15");
   const rebuildStatementTimeoutSeconds = Number(process.env.APP_REBUILD_STATEMENT_TIMEOUT_SECONDS ?? "600");
   const semanticCandidateChunks = Number(process.env.APP_SEMANTIC_CANDIDATE_CHUNKS ?? "64");
@@ -66,6 +68,7 @@ export function loadConfig(): Config {
   const maxAttempts = Number(process.env.APP_AUTH_MAX_ATTEMPTS ?? "5");
   const attemptWindowMinutes = Number(process.env.APP_AUTH_ATTEMPT_WINDOW_MINUTES ?? "15");
   if (!Number.isInteger(port) || !Number.isInteger(appPort) || !Number.isFinite(rebuildMinIntervalSeconds) || rebuildMinIntervalSeconds < 0) throw new Error("Ports and rebuild interval must be valid numbers");
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 16) throw new Error("APP_TRUST_PROXY_HOPS must be an integer between 0 and 16");
   if (!Number.isFinite(rebuildStatementTimeoutSeconds) || rebuildStatementTimeoutSeconds <= 0 || rebuildStatementTimeoutSeconds > 3600) throw new Error("APP_REBUILD_STATEMENT_TIMEOUT_SECONDS must be greater than 0 and at most 3600");
   if (!Number.isInteger(semanticCandidateChunks) || semanticCandidateChunks < 8 || semanticCandidateChunks > 1024) throw new Error("APP_SEMANTIC_CANDIDATE_CHUNKS must be an integer between 8 and 1024");
   if (!Number.isInteger(semanticHnswEfSearch) || semanticHnswEfSearch < 8 || semanticHnswEfSearch > 1000) throw new Error("APP_SEMANTIC_HNSW_EF_SEARCH must be an integer between 8 and 1000");
@@ -124,6 +127,7 @@ export function loadConfig(): Config {
     allowedSourceIds,
     host: process.env.APP_HOST?.trim() || "127.0.0.1",
     port: appPort,
+    trustProxyHops,
     publicOrigin: process.env.APP_PUBLIC_ORIGIN?.trim().replace(/\/$/, "") || null,
     rebuildMinIntervalSeconds,
     rebuildStatementTimeoutSeconds,
